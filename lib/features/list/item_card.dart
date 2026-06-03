@@ -1,0 +1,322 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app/providers.dart';
+import '../../core/config.dart';
+import '../../core/theme/moona_colors.dart';
+import '../../core/util/format.dart';
+import '../../data/models/models.dart';
+import '../../shared/widgets/widgets.dart';
+
+/// Compact, scannable shopping-list card. Tap scratches it (line-through +
+/// countdown), long-press / right-click edits it. Important items get a reddish
+/// tint and a leading dot. Mirrors the mockup `ItemCard`.
+class ItemCard extends ConsumerWidget {
+  const ItemCard({
+    super.key,
+    required this.item,
+    required this.showBadge,
+    required this.onEdit,
+  });
+
+  final ListItem item;
+  final bool showBadge;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    final state = ref.watch(appControllerProvider);
+    final controller = ref.read(appControllerProvider.notifier);
+    final lang = state.lang;
+    final scratched = state.scratched.contains(item.id);
+    final important = item.important && !scratched;
+    final category = state.categoryById(item.categoryId);
+    final unit = state.unitById(item.unitId);
+
+    final meta = <String>[];
+    if (item.count > 1 || unit != null) {
+      meta.add(
+        '${formatCount(item.count)}'
+        '${unit != null ? ' ${unit.label(lang)}' : ''}',
+      );
+    }
+    if (item.brand.isNotEmpty) meta.add(item.brand);
+    if (item.seller.isNotEmpty) meta.add(item.seller);
+
+    return GestureDetector(
+      onTap: () => controller.toggleScratch(item.id),
+      onLongPress: onEdit,
+      onSecondaryTap: onEdit,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: scratched ? 0.55 : 1,
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: important
+                ? Color.alphaBlend(
+                    c.error.withValues(alpha: 0.13),
+                    c.surfaceContainer,
+                  )
+                : c.surfaceContainer,
+            borderRadius: BorderRadius.circular(18),
+            border: important
+                ? Border.all(color: c.error.withValues(alpha: 0.3), width: 1.5)
+                : null,
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    _Thumbnail(item: item, category: category),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              if (important) ...[
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: c.error,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  state.productName(item.productId),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: c.onSurface,
+                                    decoration: scratched
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    decorationThickness: 2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (meta.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
+                              child: Text(
+                                meta.join('  ·  '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: c.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (scratched)
+                      _UndoButton(
+                        label: state.t.undo,
+                        onTap: () => controller.toggleScratch(item.id),
+                      )
+                    else if (showBadge && category != null)
+                      _CategoryBadge(category: category, lang: lang),
+                  ],
+                ),
+              ),
+              if (scratched)
+                const Positioned.fill(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: _CountdownBar(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Thumbnail extends ConsumerWidget {
+  const _Thumbnail({required this.item, required this.category});
+
+  final ListItem item;
+  final ShopCategory? category;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    const size = 50.0;
+    final placeholder = Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      color: c.surfaceContainerHighest,
+      child: Text(
+        category?.emoji ?? '🛒',
+        style: const TextStyle(fontSize: size * 0.5),
+      ),
+    );
+
+    Widget content = placeholder;
+    if (item.imageFileId != null) {
+      final url = ref.read(repositoryProvider).imageUrl(item.imageFileId!);
+      content = Container(
+        width: size,
+        height: size,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF9FD9B8), Color(0xFF6BBF8E)],
+          ),
+        ),
+        alignment: Alignment.center,
+        child: url == null
+            ? const MoonaIcon(
+                'imageIcon',
+                size: size * 0.42,
+                color: Colors.white,
+              )
+            : Image.network(
+                url,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const MoonaIcon(
+                  'imageIcon',
+                  size: size * 0.42,
+                  color: Colors.white,
+                ),
+              ),
+      );
+    }
+
+    return ClipRRect(borderRadius: BorderRadius.circular(13), child: content);
+  }
+}
+
+class _CategoryBadge extends StatelessWidget {
+  const _CategoryBadge({required this.category, required this.lang});
+
+  final ShopCategory category;
+  final String lang;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+      decoration: BoxDecoration(
+        color: c.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(category.emoji, style: const TextStyle(fontSize: 13)),
+          const SizedBox(width: 5),
+          Text(
+            category.label(lang),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: c.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UndoButton extends StatelessWidget {
+  const _UndoButton({required this.onTap, required this.label});
+
+  final VoidCallback onTap;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: c.primary,
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: SizedBox(
+            height: 36,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MoonaIcon('undo', size: 17, color: c.onPrimary),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: c.onPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated 3px countdown bar shown while an item is scratched.
+class _CountdownBar extends StatefulWidget {
+  const _CountdownBar();
+
+  @override
+  State<_CountdownBar> createState() => _CountdownBarState();
+}
+
+class _CountdownBarState extends State<_CountdownBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: MoonaConfig.scratchWindow,
+  )..forward();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => FractionallySizedBox(
+        alignment: AlignmentDirectional.centerStart,
+        widthFactor: 1 - _controller.value,
+        child: Container(height: 3, color: c.primary),
+      ),
+    );
+  }
+}
