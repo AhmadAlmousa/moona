@@ -1,0 +1,12 @@
+name: moona_backend
+description: Dart Appwrite backend for Moona.
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.1.0 <4.0.0'
+
+dependencies:
+  dart_appwrite: ^25.0.0
+
+dev_dependencies:
+  test: ^1.25.15

@@ -19,7 +19,7 @@ class InvalidPhoneException implements Exception {
 }
 
 /// Normalizes a phone number, mirroring the backend `normalizePhone`
-/// (`backend/src/normalization.js`) so the client and server always derive the
+/// (`backend/lib/src/normalization.dart`) so the client and server always derive the
 /// same `phoneDigits` and alias email.
 ///
 /// Defaults to the Saudi country code (`966`) when no international prefix is

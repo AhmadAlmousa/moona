@@ -1,20 +1,21 @@
 # Moona Appwrite Backend
 
-This package contains the Appwrite backend scaffold for Moona:
+This package contains the Dart Appwrite backend scaffold for Moona:
 
-- Appwrite collection/storage/function schema metadata.
-- Provisioning script for database, collections, indexes, bucket, functions,
-  and seed catalog data.
+- Appwrite table/storage/function schema metadata.
+- Provisioning script for database, tables, indexes, bucket, function, and seed
+  catalog data.
 - Shared domain rules for phone/product normalization, duplicate detection,
   sharing, trash metadata, and product merge suggestions.
-- A single Appwrite Function dispatcher (`moonaApi`) used by all operations.
-- Local Node tests for backend behavior that do not require Appwrite.
+- A single Dart Appwrite Function dispatcher (`moonaApi`) used by all
+  operations.
+- Local Dart tests for backend behavior that do not require Appwrite.
 
 ## Setup
 
 ```bash
 cd backend
-npm install
+dart pub get
 ```
 
 The Flutter app and backend examples default to the Appwrite Cloud MVP project:
@@ -22,10 +23,10 @@ The Flutter app and backend examples default to the Appwrite Cloud MVP project:
 - `APPWRITE_ENDPOINT=https://nyc.cloud.appwrite.io/v1`
 - `APPWRITE_PROJECT_ID=6a20305f000a1a0251d2`
 
-The database, tables, storage bucket, functions, and seed catalogs are
+The database, tables, storage bucket, function, and seed catalogs are
 provisioned in that remote project. Only create a local `.env` from
-`.env.example` when rerunning `npm run provision` from your shell; that command
-needs an `APPWRITE_API_KEY` with project-management scopes.
+`.env.example` when rerunning `dart run bin/provision.dart` from your shell;
+that command needs an `APPWRITE_API_KEY` with project-management scopes.
 
 Registered client platforms:
 
@@ -36,18 +37,18 @@ Registered client platforms:
 ## Provision
 
 ```bash
-npm run provision
+dart run bin/provision.dart
 ```
 
 The script is idempotent for create conflicts and seeds the default categories,
 units, and universal products from the mockup/spec.
 
-## Functions
+## Function
 
-The deployed function ID is `moonaApi`, and it points at
-`functions/moona/main.js`. The dispatcher resolves the operation from the
-request `action` field. `MOONA_FUNCTION_NAME` is still supported for local
-single-operation tests, but it is not set in the free-plan cloud deployment.
+The deployed function ID is `moonaApi`, and it points at `lib/main.dart`. The
+dispatcher resolves the operation from the request `action` field.
+`MOONA_FUNCTION_NAME` is still supported for local single-operation tests, but
+it is not set in the free-plan cloud deployment.
 
 Authenticated Appwrite invocations must include the function headers Appwrite
 provides automatically:
@@ -59,5 +60,5 @@ provides automatically:
 ## Tests
 
 ```bash
-npm test
+dart test
 ```
