@@ -21,4 +21,4 @@ if not root.exists():
 
 handler = partial(WasmHandler, directory=str(root))
 print(f"Serving {root} on http://localhost:{port} with Wasm headers...")
-HTTPServer(('localhost', port), handler).serve_forever()
+HTTPServer(('0.0.0.0', port), handler).serve_forever()

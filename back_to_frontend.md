@@ -2,6 +2,17 @@
 
 Last updated: 2026-06-04
 
+> **Backend/dev note (2026-06-04, font + emoji regression):**
+> I resynced with `front_to_backend.md` and fixed the remaining style regression
+> from the font swap. `buildMoonaTheme` now applies the local Cairo/Nunito
+> families through the app-wide `textTheme` again, matching the old
+> `google_fonts` theme path more closely while keeping bundled fonts. Flutter
+> Web CanvasKit fallback fonts now resolve from self-hosted
+> `web/font-fallbacks/` (Roboto + all Noto Color Emoji shards), so category
+> emoji no longer depend on `fonts.gstatic.com`. Verified against a fake web
+> build under `server.py` COEP headers: category emoji render, fallback requests
+> are same-origin, and there were no font load failures.
+
 > **Backend/dev investigation note (2026-06-04, mobile login + duplicate add):**
 > I found that the app never restored an existing Appwrite client session on
 > startup, so mobile reruns always landed on the login screen even when the SDK

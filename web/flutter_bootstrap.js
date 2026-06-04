@@ -35,10 +35,10 @@ clearOldFlutterServiceWorker()
       config: {
         // Serve the CanvasKit wasm from our own origin (faster, offline-friendly).
         canvasKitBaseUrl: 'canvaskit/',
-        // Leave fontFallbackBaseUrl at its default so CanvasKit can fetch the Noto
-        // fallback fonts on demand — this is what renders emoji (category icons)
-        // and any glyph missing from Cairo/Nunito. An empty value disables that
-        // and was why emoji + some Arabic glyphs were blank.
+        // Keep CanvasKit fallback fonts local as well. Category emoji render
+        // through Noto Color Emoji, and relying on fonts.gstatic.com made those
+        // glyphs disappear whenever the fallback fetch failed.
+        fontFallbackBaseUrl: 'font-fallbacks/',
       },
     });
   });

@@ -36,14 +36,26 @@ ThemeData buildMoonaTheme({
         scrim: tokens.scrim,
       );
 
-  return ThemeData(
+  final primaryFamily = arabic ? _cairo : _nunito;
+  final fallbackFamily = arabic ? _nunito : _cairo;
+  final baseTheme = ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
+    fontFamily: primaryFamily,
+    fontFamilyFallback: [fallbackFamily],
+  );
+  final textTheme = baseTheme.textTheme.apply(
+    bodyColor: tokens.onSurface,
+    displayColor: tokens.onSurface,
+    fontFamily: primaryFamily,
+    fontFamilyFallback: [fallbackFamily],
+  );
+
+  return baseTheme.copyWith(
     scaffoldBackgroundColor: tokens.surface,
     canvasColor: tokens.surface,
-    fontFamily: arabic ? _cairo : _nunito,
-    fontFamilyFallback: [arabic ? _nunito : _cairo],
+    textTheme: textTheme,
     splashFactory: InkSparkle.splashFactory,
     extensions: [tokens],
   );
