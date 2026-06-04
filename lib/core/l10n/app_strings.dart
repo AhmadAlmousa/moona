@@ -186,6 +186,9 @@ class AppStrings {
   // generic errors
   String get genericError =>
       isArabic ? 'حدث خطأ، حاول مرة أخرى' : 'Something went wrong, try again';
+  String get networkError => isArabic
+      ? 'تعذّر الاتصال بالخادم. تحقّق من اتصالك بالإنترنت'
+      : 'Could not reach the server. Check your internet connection';
 
   /// Relative time label, ported from `i18n.js` `relTime`.
   String relTime(DateTime time) {

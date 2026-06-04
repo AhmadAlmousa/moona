@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show Brightness, PlatformDispatcher;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config.dart';
@@ -44,13 +45,19 @@ class AppController extends Notifier<AppState> {
     } on InvalidPhoneException {
       state = state.copyWith(busy: false, loginError: state.t.enterPhone);
     } on MoonaException catch (e) {
+      if (e.code == MoonaException.unknown) {
+        debugPrint('Moona signIn failed: ${e.message}');
+      }
       state = state.copyWith(
         busy: false,
-        loginError: e.code == MoonaException.wrongPassword
-            ? state.t.wrongPass
-            : state.t.genericError,
+        loginError: switch (e.code) {
+          MoonaException.wrongPassword => state.t.wrongPass,
+          MoonaException.networkError => state.t.networkError,
+          _ => state.t.genericError,
+        },
       );
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('Moona signIn failed: $e\n$stack');
       state = state.copyWith(busy: false, loginError: state.t.genericError);
     }
   }

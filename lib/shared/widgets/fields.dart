@@ -20,6 +20,7 @@ class MoonaField extends StatefulWidget {
     this.autofocus = false,
     this.onChanged,
     this.onSubmitted,
+    this.leading,
     this.trailing,
     this.focusNode,
     this.minLines,
@@ -38,6 +39,7 @@ class MoonaField extends StatefulWidget {
   final bool autofocus;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final Widget? leading;
   final Widget? trailing;
   final FocusNode? focusNode;
   final int? minLines;
@@ -105,6 +107,10 @@ class _MoonaFieldState extends State<MoonaField> {
                 ? CrossAxisAlignment.start
                 : CrossAxisAlignment.center,
             children: [
+              if (widget.leading != null) ...[
+                widget.leading!,
+                const SizedBox(width: 8),
+              ],
               Expanded(
                 child: TextField(
                   controller: widget.controller,

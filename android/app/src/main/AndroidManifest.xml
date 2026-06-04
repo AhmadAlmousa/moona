@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required so the app can reach the Appwrite backend. The debug/profile
+         manifests add this for Flutter tooling, but release builds only merge
+         this manifest, so without it every network call (including sign-in)
+         fails silently with a generic error. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="moona"
         android:name="${applicationName}"

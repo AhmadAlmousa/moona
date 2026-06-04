@@ -22,6 +22,12 @@ class MoonaException implements Exception {
   static const invalidInput = 'invalid_input';
   static const notFound = 'not_found';
 
+  /// No HTTP response reached the server (offline / DNS / TLS failure).
+  static const networkError = 'network_error';
+
+  /// An error we could not classify; [message] carries the underlying detail.
+  static const unknown = 'unknown';
+
   @override
   String toString() => 'MoonaException($code): ${message ?? ''}';
 }

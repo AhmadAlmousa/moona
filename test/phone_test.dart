@@ -33,4 +33,38 @@ void main() {
       expect(() => normalizePhone('  '), throwsA(isA<InvalidPhoneException>()));
     });
   });
+
+  group('composeInternationalPhone', () {
+    test('prepends the dial code to a bare local number', () {
+      expect(composeInternationalPhone('966', '501112233'), '+966501112233');
+    });
+
+    test('drops a leading national-trunk zero', () {
+      expect(composeInternationalPhone('966', '0501112233'), '+966501112233');
+    });
+
+    test('does not double the dial code when already typed', () {
+      expect(composeInternationalPhone('966', '966501112233'), '+966501112233');
+    });
+
+    test('passes an explicit + international number through', () {
+      expect(composeInternationalPhone('966', '+971501112233'), '+971501112233');
+    });
+
+    test('passes an explicit 00 international number through', () {
+      expect(
+        composeInternationalPhone('966', '00971501112233'),
+        '00971501112233',
+      );
+    });
+
+    test('strips spaces and dashes from the local number', () {
+      expect(composeInternationalPhone('20', '010 1234 5678'), '+201012345678');
+    });
+
+    test('round-trips through normalizePhone to a stable alias', () {
+      final composed = composeInternationalPhone('966', '0501112233');
+      expect(normalizePhone(composed).digits, '966501112233');
+    });
+  });
 }

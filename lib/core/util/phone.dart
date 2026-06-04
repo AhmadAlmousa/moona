@@ -52,3 +52,22 @@ NormalizedPhone normalizePhone(
     aliasEmail: 'phone-$digits@${MoonaConfig.aliasEmailDomain}',
   );
 }
+
+/// Combines a country [dialCode] (digits only, e.g. `966`) chosen from the
+/// country-code picker with a locally typed [localNumber] into an international
+/// string ready for [normalizePhone].
+///
+/// A single leading national-trunk `0` is dropped (so `050…` under +966 becomes
+/// `+96650…`). If the user already typed an international prefix (`+` or `00`),
+/// their input is returned untouched so an explicit country code always wins. If
+/// the typed number already begins with the selected dial code (e.g. they pasted
+/// the full `966…`), it is not prepended again — mirroring the backend
+/// `normalizePhone` heuristic so the two agree.
+String composeInternationalPhone(String dialCode, String localNumber) {
+  final raw = localNumber.trim();
+  if (raw.startsWith('+') || raw.startsWith('00')) return raw;
+  var local = raw.replaceAll(RegExp(r'\D'), '');
+  if (local.startsWith('0')) local = local.substring(1);
+  if (!local.startsWith(dialCode)) local = '$dialCode$local';
+  return '+$local';
+}

@@ -42,9 +42,16 @@ class AppwriteMoonaRepository implements MoonaRepository {
         email: email,
         password: password,
       );
-    } on AppwriteException {
-      // User likely does not exist yet — create then log in. If the account
-      // already exists, the create fails and we treat it as a bad password.
+    } on AppwriteException catch (signInError) {
+      // Appwrite returns the same `user_invalid_credentials` error whether the
+      // password is wrong or the account does not exist yet (it won't reveal
+      // which). Only then do we try to register: if the account already exists,
+      // the password was wrong. Any other failure (network, blocked origin,
+      // server error) is real and must be surfaced — not hidden behind a
+      // new-user signup attempt that fails the same way.
+      if (signInError.type != 'user_invalid_credentials') {
+        throw _mapAuthError(signInError);
+      }
       try {
         await _account.create(
           userId: ID.unique(),
@@ -56,7 +63,7 @@ class AppwriteMoonaRepository implements MoonaRepository {
         if (e.type == 'user_already_exists') {
           throw const MoonaException(MoonaException.wrongPassword);
         }
-        rethrow;
+        throw _mapAuthError(e);
       }
       await _account.createEmailPasswordSession(
         email: email,
@@ -278,4 +285,15 @@ class AppwriteMoonaRepository implements MoonaRepository {
 
   Map<String, dynamic> _asMap(dynamic value) =>
       value is Map ? value.cast<String, dynamic>() : <String, dynamic>{};
+
+  /// Translates a raw [AppwriteException] from the auth flow into a
+  /// [MoonaException] the UI can act on. A null/zero HTTP status means no
+  /// response reached the server (offline / DNS / TLS), which is by far the most
+  /// common cause of a generic "something went wrong" on a fresh device.
+  MoonaException _mapAuthError(AppwriteException e) {
+    if (e.code == null || e.code == 0) {
+      return const MoonaException(MoonaException.networkError);
+    }
+    return MoonaException(MoonaException.unknown, e.message ?? e.type);
+  }
 }

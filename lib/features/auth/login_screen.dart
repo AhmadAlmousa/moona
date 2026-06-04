@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
+import '../../core/util/countries.dart';
+import '../../core/util/phone.dart';
 import '../../shared/widgets/widgets.dart';
 
 /// First-run / sign-in screen. Phone + password; unknown numbers auto-create an
@@ -18,6 +20,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phone = TextEditingController();
   final _password = TextEditingController();
+  Country _country = kDefaultCountry;
 
   @override
   void dispose() {
@@ -28,9 +31,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   void _submit() {
     FocusScope.of(context).unfocus();
-    ref
-        .read(appControllerProvider.notifier)
-        .signIn(_phone.text, _password.text);
+    final phone = composeInternationalPhone(_country.dialCode, _phone.text);
+    ref.read(appControllerProvider.notifier).signIn(phone, _password.text);
   }
 
   @override
@@ -102,12 +104,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 26),
-                MoonaField(
+                MoonaPhoneField(
                   controller: _phone,
+                  country: _country,
+                  onCountryChanged: (country) =>
+                      setState(() => _country = country),
+                  isArabic: t.isArabic,
                   label: t.phone,
                   placeholder: t.phoneHint,
-                  keyboardType: TextInputType.phone,
-                  textDirection: TextDirection.ltr,
                   autofocus: true,
                 ),
                 const SizedBox(height: 16),
