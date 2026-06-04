@@ -65,6 +65,65 @@ void main() {
     );
   });
 
+  test('lookupContacts marks registered users and returns them first',
+      () async {
+    final repo = FakeRepo();
+
+    final result = await lookupContacts(
+      repo: repo,
+      actorId: 'owner',
+      payload: {
+        'phones': ['0550000000', '0507654321', '+966501112233'],
+      },
+    );
+
+    final contacts = result['contacts'] as List<JsonMap>;
+    final registered = result['registered'] as List<JsonMap>;
+    final unregistered = result['unregistered'] as List<JsonMap>;
+
+    expect(contacts.map((entry) => entry['phoneDigits']), [
+      '966507654321',
+      '966501112233',
+      '966550000000',
+    ]);
+    expect(registered, hasLength(2));
+    expect(registered.first['displayName'], 'Viewer');
+    expect(registered.first['isSelf'], isFalse);
+    expect(registered.last['displayName'], 'Owner');
+    expect(registered.last['isSelf'], isTrue);
+    expect(unregistered.single['registered'], isFalse);
+  });
+
+  test(
+      'lookupContacts deduplicates normalized phones and reports invalid input',
+      () async {
+    final repo = FakeRepo();
+
+    final result = await lookupContacts(
+      repo: repo,
+      actorId: 'owner',
+      payload: {
+        'contacts': [
+          {
+            'phones': [
+              {'number': '0507654321'},
+              {'number': '+966507654321'},
+              {'number': '12'},
+            ],
+          },
+        ],
+      },
+    );
+
+    final contacts = result['contacts'] as List<JsonMap>;
+    final invalid = result['invalid'] as List<JsonMap>;
+
+    expect(contacts, hasLength(1));
+    expect(contacts.single['phoneDigits'], '966507654321');
+    expect(contacts.single['registered'], isTrue);
+    expect(invalid.single['code'], ErrorCodes.invalidInput);
+  });
+
   test('createItem rejects invalid image file IDs before creating the item',
       () async {
     final repo = FakeRepo();
@@ -238,6 +297,15 @@ class FakeRepo {
     return profiles.values
         .where((profile) => profile['phoneDigits'] == digits)
         .firstOrNull;
+  }
+
+  Future<List<JsonMap>> listProfilesByPhoneDigits(
+    Iterable<String> phoneDigits,
+  ) async {
+    final digits = phoneDigits.toSet();
+    return profiles.values
+        .where((profile) => digits.contains(profile['phoneDigits']))
+        .toList();
   }
 
   Future<List<JsonMap>> listSharesForViewer(Object? viewerId) async =>

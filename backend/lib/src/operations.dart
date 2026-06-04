@@ -110,6 +110,65 @@ Future<JsonMap> searchProductsOperation({
   };
 }
 
+Future<JsonMap> lookupContacts({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final rawPhones = contactLookupPhones(payload);
+  final limit = intFrom(payload['limit'], fallback: 250).clamp(1, 500).toInt();
+
+  final normalized = <JsonMap>[];
+  final invalid = <JsonMap>[];
+  final seenDigits = <String>{};
+  for (final raw in rawPhones.take(limit)) {
+    final value = (raw ?? '').toString();
+    try {
+      final phone = normalizePhone(value);
+      final digits = phone['digits'].toString();
+      if (!seenDigits.add(digits)) continue;
+      normalized.add({
+        'phone': phone['e164'],
+        'phoneDigits': digits,
+      });
+    } on MoonaError catch (error) {
+      invalid.add({
+        'phone': value,
+        'code': error.code,
+        'message': error.message,
+      });
+    }
+  }
+
+  final profiles = listOfMaps(
+    await repo.listProfilesByPhoneDigits(
+      normalized.map((entry) => entry['phoneDigits'].toString()),
+    ),
+  );
+  final profilesByDigits = {
+    for (final profile in profiles)
+      (profile['phoneDigits'] ?? '').toString(): profile,
+  };
+
+  final contacts = normalized.map((entry) {
+    final digits = entry['phoneDigits'].toString();
+    final profile = asNullableMap(profilesByDigits[digits]);
+    return contactLookupResult(actorId, entry, profile);
+  }).toList();
+  final registered =
+      contacts.where((entry) => entry['registered'] == true).toList();
+  final unregistered =
+      contacts.where((entry) => entry['registered'] != true).toList();
+
+  return {
+    'contacts': [...registered, ...unregistered],
+    'registered': registered,
+    'unregistered': unregistered,
+    'invalid': invalid,
+  };
+}
+
 Future<JsonMap> createItem({
   required dynamic repo,
   required String actorId,
@@ -539,6 +598,7 @@ final operations = <String, Operation>{
   'updatePreferences': updatePreferences,
   'getBootstrapData': getBootstrapData,
   'searchProducts': searchProductsOperation,
+  'lookupContacts': lookupContacts,
   'createItem': createItem,
   'updateItem': updateItem,
   'trashItem': trashItem,
@@ -676,6 +736,67 @@ JsonMap withTrashActorDisplayName(JsonMap item, JsonMap profiles) {
   return {
     ...item,
     'trashedByDisplayName': displayName,
+  };
+}
+
+List<Object?> contactLookupPhones(JsonMap payload) {
+  final values = <Object?>[];
+  final phones = payload['phones'];
+  if (phones is Iterable) values.addAll(phones);
+
+  final contacts = payload['contacts'];
+  if (contacts is Iterable) {
+    for (final contact in contacts) {
+      if (contact is Map) {
+        final map = contact.cast<String, dynamic>();
+        final phone = map['phone'] ?? map['number'] ?? map['value'];
+        if (phone != null) values.add(phone);
+        final nestedPhones = map['phones'];
+        if (nestedPhones is Iterable) {
+          for (final nested in nestedPhones) {
+            if (nested is Map) {
+              final nestedMap = nested.cast<String, dynamic>();
+              values.add(
+                nestedMap['phone'] ?? nestedMap['number'] ?? nestedMap['value'],
+              );
+            } else {
+              values.add(nested);
+            }
+          }
+        }
+      } else {
+        values.add(contact);
+      }
+    }
+  }
+
+  return values;
+}
+
+JsonMap contactLookupResult(
+  String actorId,
+  JsonMap normalized,
+  JsonMap? profile,
+) {
+  final base = {
+    'phone': normalized['phone'],
+    'phoneDigits': normalized['phoneDigits'],
+  };
+  if (profile == null) {
+    return {...base, 'registered': false};
+  }
+
+  final userId = (profile['userId'] ?? documentId(profile)).toString();
+  if (userId.isEmpty) {
+    return {...base, 'registered': false};
+  }
+
+  return {
+    ...base,
+    'registered': true,
+    'userId': userId,
+    'displayName': (profile['displayName'] ?? '').toString(),
+    'isSelf': userId == actorId,
   };
 }
 

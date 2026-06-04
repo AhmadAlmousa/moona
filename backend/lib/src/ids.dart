@@ -29,6 +29,7 @@ abstract final class FunctionIds {
   static const updatePreferences = 'updatePreferences';
   static const getBootstrapData = 'getBootstrapData';
   static const searchProducts = 'searchProducts';
+  static const lookupContacts = 'lookupContacts';
   static const createItem = 'createItem';
   static const updateItem = 'updateItem';
   static const trashItem = 'trashItem';

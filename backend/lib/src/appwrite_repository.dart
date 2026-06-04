@@ -131,6 +131,28 @@ class AppwriteRepository {
     return result.documents.firstOrNull;
   }
 
+  Future<List<JsonMap>> listProfilesByPhoneDigits(
+    Iterable<String> phoneDigits,
+  ) async {
+    final uniqueDigits = phoneDigits
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList();
+    if (uniqueDigits.isEmpty) return const [];
+
+    final profiles = <JsonMap>[];
+    for (var i = 0; i < uniqueDigits.length; i += 100) {
+      final chunk = uniqueDigits.skip(i).take(100).toList();
+      profiles.addAll(
+        await listAllDocuments(adminDatabases, CollectionIds.profiles, [
+          Query.equal('phoneDigits', chunk),
+        ]),
+      );
+    }
+    return uniqueDocuments(profiles);
+  }
+
   Future<List<JsonMap>> listProfiles() =>
       listAllDocuments(adminDatabases, CollectionIds.profiles);
 

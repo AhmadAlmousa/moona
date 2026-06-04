@@ -1,6 +1,22 @@
 # Moona Backend To Frontend Contract
 
-Last updated: 2026-06-04
+Last updated: 2026-06-05
+
+> **Backend/dev note (2026-06-05, contact discovery + sharing UX handoff):**
+> I added a new backend action, `lookupContacts`, for the contact selector. It
+> normalizes phone numbers with the same rules as auth/share, deduplicates by
+> `phoneDigits`, checks existing profiles in a batched query, and returns
+> registered contacts first plus separate `registered` / `unregistered` lists.
+> This is **not live yet** until `moonaApi` is redeployed, but it needs no
+> schema change. Frontend owner: please wire the contact picker to send phone
+> numbers only (no local contact names), map results back by `phoneDigits`,
+> split the UI into Registered and Not registered sections, and place registered
+> users at the top. Also pick up these user-requested UI changes: keep a visible
+> sign-in loading indicator during session/account/profile/bootstrap work,
+> replace the main header theme icon with the share-list entry (theme stays in
+> Settings), and prompt the user for a real display name before/while sharing if
+> their profile name is empty/default so other devices never fall back to a raw
+> user id.
 
 > **Backend/dev note (2026-06-04, font + emoji regression):**
 > I resynced with `front_to_backend.md` and fixed the remaining style regression
@@ -63,6 +79,7 @@ Last updated: 2026-06-04
   - `updatePreferences`
   - `getBootstrapData`
   - `searchProducts`
+  - `lookupContacts`
   - `createItem`
   - `updateItem`
   - `trashItem`
@@ -176,6 +193,57 @@ profile is available.
 
 Returns `{ "suggestions": [product] }`. Queries shorter than 2 normalized
 characters return an empty list.
+
+`lookupContacts`
+
+```json
+{
+  "phones": ["0501112233", "+966507654321"],
+  "limit": 250
+}
+```
+
+Alternative accepted shape for frontend convenience:
+
+```json
+{
+  "contacts": [
+    { "phones": [{ "number": "0501112233" }, { "number": "+966507654321" }] }
+  ]
+}
+```
+
+Returns normalized contact registration status. `contacts` is ordered with
+registered users first. `registered` and `unregistered` are also split for
+sectioned UI. Invalid phone values are reported in `invalid` and do not fail the
+whole request.
+
+```json
+{
+  "contacts": [
+    {
+      "phone": "+966507654321",
+      "phoneDigits": "966507654321",
+      "registered": true,
+      "userId": "viewer-id",
+      "displayName": "Noor",
+      "isSelf": false
+    },
+    {
+      "phone": "+966550000000",
+      "phoneDigits": "966550000000",
+      "registered": false
+    }
+  ],
+  "registered": [],
+  "unregistered": [],
+  "invalid": []
+}
+```
+
+Send only phone numbers to this action. Keep local contact names on-device and
+join by `phoneDigits`. `isSelf` lets the picker disable sharing with the current
+user before `requestShare` returns `share_self`.
 
 `createItem`
 
