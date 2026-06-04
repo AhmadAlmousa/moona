@@ -244,6 +244,7 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
               MoonaDropdownEntry(
                 value: category.id,
                 label: category.label(lang),
+                emoji: category.emoji,
               ),
           ],
           onChanged: (v) => setState(() => _categoryId = v),

@@ -346,6 +346,7 @@ class _CategoryBar extends StatelessWidget {
             const SizedBox(width: 9),
             CategoryChip(
               label: category.label(state.lang),
+              emoji: category.emoji,
               count: counts[category.id] ?? 0,
               selected: state.filter == category.id,
               onTap: () => onSelect(category.id),

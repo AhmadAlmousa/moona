@@ -71,7 +71,7 @@ class ItemCard extends ConsumerWidget {
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    _Thumbnail(item: item, category: category, lang: lang),
+                    _Thumbnail(item: item, category: category),
                     const SizedBox(width: 13),
                     Expanded(
                       child: Column(
@@ -153,15 +153,10 @@ class ItemCard extends ConsumerWidget {
 }
 
 class _Thumbnail extends ConsumerWidget {
-  const _Thumbnail({
-    required this.item,
-    required this.category,
-    required this.lang,
-  });
+  const _Thumbnail({required this.item, required this.category});
 
   final ListItem item;
   final ShopCategory? category;
-  final String lang;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -175,12 +170,8 @@ class _Thumbnail extends ConsumerWidget {
       child: category == null
           ? MoonaIcon('list', size: size * 0.42, color: c.onSurfaceVariant)
           : Text(
-              _categoryInitial(category!, lang),
-              style: TextStyle(
-                fontSize: size * 0.38,
-                fontWeight: FontWeight.w900,
-                color: c.onSurfaceVariant,
-              ),
+              category!.emoji,
+              style: const TextStyle(fontSize: size * 0.5),
             ),
     );
 
@@ -283,6 +274,8 @@ class _CategoryBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Text(category.emoji, style: const TextStyle(fontSize: 13)),
+          const SizedBox(width: 5),
           Text(
             category.label(lang),
             style: TextStyle(
@@ -295,11 +288,6 @@ class _CategoryBadge extends StatelessWidget {
       ),
     );
   }
-}
-
-String _categoryInitial(ShopCategory category, String lang) {
-  final label = category.label(lang).trim();
-  return label.isEmpty ? '' : label.substring(0, 1).toUpperCase();
 }
 
 class _UndoButton extends StatelessWidget {
