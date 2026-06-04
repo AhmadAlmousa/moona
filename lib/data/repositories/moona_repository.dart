@@ -107,9 +107,14 @@ abstract class MoonaRepository {
     required String filename,
   });
 
-  /// Builds a displayable URL for a stored image file id, or null when the
-  /// backend cannot serve one (e.g. the fake repository).
-  String? imageUrl(String fileId);
+  /// Builds a displayable URL for a stored item image, or null when the backend
+  /// cannot serve one (e.g. the fake repository).
+  ///
+  /// The `item_images` bucket uses `fileSecurity`, so a plain view URL carries
+  /// no session on mobile and 401s. This requests a short-lived file view token
+  /// (`createImageViewToken`) scoped to the owning [itemId] and appends it to
+  /// the view URL, which authenticates the read on every platform.
+  Future<String?> imageViewUrl({required String itemId, required String fileId});
 
   /// Realtime change notifications for the signed-in session.
   Stream<RealtimeChange> realtimeChanges();

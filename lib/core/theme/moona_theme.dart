@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import 'moona_colors.dart';
 
 /// Builds the Moona [ThemeData] for a given [brightness] and language.
+///
+/// The mockup pairs **Nunito** (rounded Latin) with **Cairo** (Arabic). The
+/// active language picks the primary family and the other becomes the fallback,
+/// so mixed-script content (e.g. an Arabic brand inside an English UI) still
+/// renders correctly. Both are bundled variable fonts (see `pubspec.yaml`).
 ThemeData buildMoonaTheme({
   required Brightness brightness,
   required bool arabic,
@@ -37,10 +42,12 @@ ThemeData buildMoonaTheme({
     colorScheme: scheme,
     scaffoldBackgroundColor: tokens.surface,
     canvasColor: tokens.surface,
-    fontFamily: _fontFamily,
+    fontFamily: arabic ? _cairo : _nunito,
+    fontFamilyFallback: [arabic ? _nunito : _cairo],
     splashFactory: InkSparkle.splashFactory,
     extensions: [tokens],
   );
 }
 
-const _fontFamily = 'Roboto';
+const _cairo = 'Cairo';
+const _nunito = 'Nunito';

@@ -33,8 +33,12 @@ clearOldFlutterServiceWorker()
     if (reloaded) return;
     _flutter.loader.load({
       config: {
+        // Serve the CanvasKit wasm from our own origin (faster, offline-friendly).
         canvasKitBaseUrl: 'canvaskit/',
-        fontFallbackBaseUrl: '',
+        // Leave fontFallbackBaseUrl at its default so CanvasKit can fetch the Noto
+        // fallback fonts on demand — this is what renders emoji (category icons)
+        // and any glyph missing from Cairo/Nunito. An empty value disables that
+        // and was why emoji + some Arabic glyphs were blank.
       },
     });
   });

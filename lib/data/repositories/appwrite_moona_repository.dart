@@ -196,10 +196,46 @@ class AppwriteMoonaRepository implements MoonaRepository {
     }
   }
 
+  /// Cached file view tokens keyed by `itemId|fileId`, reused until shortly
+  /// before they expire to avoid a function round-trip on every thumbnail build.
+  final Map<String, _ImageViewToken> _imageTokens = {};
+
   @override
-  String? imageUrl(String fileId) =>
-      '${MoonaConfig.endpoint}/storage/buckets/${MoonaConfig.imageBucketId}'
-      '/files/$fileId/view?project=${MoonaConfig.projectId}';
+  Future<String?> imageViewUrl({
+    required String itemId,
+    required String fileId,
+  }) async {
+    final base =
+        '${MoonaConfig.endpoint}/storage/buckets/${MoonaConfig.imageBucketId}'
+        '/files/$fileId/view?project=${MoonaConfig.projectId}';
+
+    final cacheKey = '$itemId|$fileId';
+    final cached = _imageTokens[cacheKey];
+    if (cached != null && cached.isFresh) {
+      return '$base&token=${Uri.encodeComponent(cached.token)}';
+    }
+
+    try {
+      final data = await _call(MoonaFunctions.createImageViewToken, {
+        'itemId': itemId,
+        'fileId': fileId,
+      });
+      final token = data['token']?.toString();
+      if (token == null || token.isEmpty) return base;
+      final expire =
+          _date(data['expire']) ??
+          DateTime.now().add(const Duration(minutes: 15));
+      _imageTokens[cacheKey] = _ImageViewToken(token, expire);
+      return '$base&token=${Uri.encodeComponent(token)}';
+    } on MoonaException {
+      // Fall back to the bare view URL — web sessions still authenticate via
+      // the cookie; mobile will surface the image error builder.
+      return base;
+    }
+  }
+
+  DateTime? _date(dynamic value) =>
+      value == null ? null : DateTime.tryParse(value.toString());
 
   @override
   Stream<RealtimeChange> realtimeChanges() {
@@ -362,4 +398,17 @@ class AppwriteMoonaRepository implements MoonaRepository {
     }
     return MoonaException(MoonaException.unknown, e.message ?? e.type);
   }
+}
+
+/// A cached Appwrite file view token with its server-reported expiry.
+class _ImageViewToken {
+  _ImageViewToken(this.token, this.expiresAt);
+
+  final String token;
+  final DateTime expiresAt;
+
+  /// Whether the token is still valid with a safety margin to cover render +
+  /// network latency before it lapses.
+  bool get isFresh =>
+      expiresAt.isAfter(DateTime.now().add(const Duration(seconds: 30)));
 }

@@ -577,7 +577,10 @@ class FakeMoonaRepository implements MoonaRepository {
   }
 
   @override
-  String? imageUrl(String fileId) => null;
+  Future<String?> imageViewUrl({
+    required String itemId,
+    required String fileId,
+  }) async => null;
 
   @override
   Stream<RealtimeChange> realtimeChanges() => const Stream.empty();

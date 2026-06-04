@@ -87,12 +87,18 @@ flutter:
   assets:
     - assets/icon/
 
+  # Bundled variable fonts (the mockup pairing). Cairo carries Arabic + Latin,
+  # Nunito is the rounded Latin face. Each is a single variable .ttf whose weight
+  # axis covers the full w400–w900 range the UI uses, so no per-weight files and
+  # no runtime network font fetch. Emoji still come from CanvasKit's Noto fallback
+  # on web (see web/flutter_bootstrap.js) and the OS emoji font on mobile.
   fonts:
-    - family: Roboto
+    - family: Cairo
       fonts:
-        - asset: assets/fonts/DejaVuSans.ttf
-        - asset: assets/fonts/DejaVuSans-Bold.ttf
-          weight: 700
+        - asset: assets/fonts/Cairo.ttf
+    - family: Nunito
+      fonts:
+        - asset: assets/fonts/Nunito.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

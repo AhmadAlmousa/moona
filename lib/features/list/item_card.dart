@@ -186,39 +186,82 @@ class _Thumbnail extends ConsumerWidget {
 
     Widget content = placeholder;
     if (item.imageFileId != null) {
-      final url = ref.read(repositoryProvider).imageUrl(item.imageFileId!);
-      content = Container(
-        width: size,
-        height: size,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF9FD9B8), Color(0xFF6BBF8E)],
-          ),
-        ),
-        alignment: Alignment.center,
-        child: url == null
-            ? const MoonaIcon(
-                'imageIcon',
-                size: size * 0.42,
-                color: Colors.white,
-              )
-            : Image.network(
-                url,
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const MoonaIcon(
-                  'imageIcon',
-                  size: size * 0.42,
-                  color: Colors.white,
-                ),
-              ),
-      );
+      content = _ItemImage(item: item, size: size);
     }
 
     return ClipRRect(borderRadius: BorderRadius.circular(13), child: content);
+  }
+}
+
+/// Renders a stored item image, resolving a short-lived tokenized view URL via
+/// the repository (see [MoonaRepository.imageViewUrl]) so private images load on
+/// mobile as well as web. Falls back to a branded icon while loading or on error.
+class _ItemImage extends ConsumerStatefulWidget {
+  const _ItemImage({required this.item, required this.size});
+
+  final ListItem item;
+  final double size;
+
+  @override
+  ConsumerState<_ItemImage> createState() => _ItemImageState();
+}
+
+class _ItemImageState extends ConsumerState<_ItemImage> {
+  late Future<String?> _url;
+
+  @override
+  void initState() {
+    super.initState();
+    _url = _resolve();
+  }
+
+  @override
+  void didUpdateWidget(_ItemImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.imageFileId != widget.item.imageFileId ||
+        oldWidget.item.id != widget.item.id) {
+      _url = _resolve();
+    }
+  }
+
+  Future<String?> _resolve() => ref
+      .read(repositoryProvider)
+      .imageViewUrl(itemId: widget.item.id, fileId: widget.item.imageFileId!);
+
+  @override
+  Widget build(BuildContext context) {
+    final size = widget.size;
+    final fallback = MoonaIcon(
+      'imageIcon',
+      size: size * 0.42,
+      color: Colors.white,
+    );
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF9FD9B8), Color(0xFF6BBF8E)],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: FutureBuilder<String?>(
+        future: _url,
+        builder: (context, snapshot) {
+          final url = snapshot.data;
+          if (url == null) return fallback;
+          return Image.network(
+            url,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => fallback,
+          );
+        },
+      ),
+    );
   }
 }
 

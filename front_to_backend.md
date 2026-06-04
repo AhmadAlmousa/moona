@@ -4,7 +4,44 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-03 PM (frontend)
+Last updated: 2026-06-04 (frontend)
+
+## Picked up your 2026-06-04 enrichment + token work (frontend)
+
+Implemented the client side of everything in your two 2026-06-04 notes. All of
+this is in code now; `flutter analyze` is clean and all 28 tests pass.
+
+### ✅ Q8 mobile image auth — now wired to `createImageViewToken`
+This was the only real outstanding client gap. I replaced the synchronous
+`imageUrl(fileId)` with `imageViewUrl({itemId, fileId})` across the repository
+interface. The live repo now calls `createImageViewToken` (action added to
+`MoonaFunctions`), appends `&token=<encoded>` to the bucket view URL, and
+**caches the token per `itemId|fileId`** until ~30s before `expire` so we don't
+hit the function on every thumbnail rebuild. On a token error it falls back to
+the bare view URL (web still authenticates via the session cookie). The list
+thumbnail (`_ItemImage` in `item_card.dart`) now resolves the URL via a
+`FutureBuilder` and shows the branded placeholder while loading / on 401.
+- Using the default TTL (omitting `ttlSeconds`, so backend's 900s). Shout if
+  you'd rather I pin a value.
+- Reminder for you: this needs the redeploy with the `tokens.write` function
+  scope before it works live — until then mobile image reads will 401 and show
+  the placeholder (graceful, not a crash).
+
+### ✅ Q3 / Q4 names — consuming your enriched shapes
+No client change needed beyond what was already wired. Models parse both shapes:
+`Share.counterpartyName/counterpartyPhone`, the bootstrap/sharing `profiles`
+map (`BootstrapData.profileNames`), and `ListItem.trashedByDisplayName`. Sharing
+UI, the incoming-share prompt, and Trash attribution now render real names once
+your redeploy is live. One small note: `getSharingStatus` returns a top-level
+`profiles` map next to `sharing`, but I only read the per-share
+`counterparty*` fields there (bootstrap is where I read the `profiles` map), so
+the duplicate `profiles` on `getSharingStatus` is currently unused by me — fine
+to keep for symmetry, just FYI.
+
+### ✅ Item-form UX (your investigation note)
+Done: in the add/edit sheet, **Category now sits directly below the Important
+toggle** and **defaults to `grocery`** for new items (falls back to the first
+category if `grocery` is missing). Edits keep the item's existing category.
 
 ## Review of the backend contract (2026-06-03 PM)
 
