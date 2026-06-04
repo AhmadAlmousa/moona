@@ -129,6 +129,10 @@ class AppController extends Notifier<AppState> {
 
   void setFilter(String filter) => state = state.copyWith(filter: filter);
 
+  void setSort(SortKey key) => state = state.copyWith(sortKey: key);
+
+  void toggleGrouped() => state = state.copyWith(grouped: !state.grouped);
+
   // ── items ────────────────────────────────────────────────────────────
   /// Adds an item. Returns true on success so the form can close (a duplicate
   /// or error keeps the form open with the user's input).

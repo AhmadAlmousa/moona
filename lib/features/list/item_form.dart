@@ -223,43 +223,6 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
           description: t.importantDesc,
           onChanged: (v) => setState(() => _important = v),
         ),
-        const SizedBox(height: 18),
-        _Label(t.category),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final category in state.categories)
-              SelectChip(
-                label: category.label(lang),
-                emoji: category.emoji,
-                selected: _categoryId == category.id,
-                onTap: () => setState(
-                  () => _categoryId = _categoryId == category.id
-                      ? null
-                      : category.id,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        _Label(t.image),
-        const SizedBox(height: 8),
-        _ImagePicker(
-          bytes: _pickedBytes,
-          hasExisting: _imageFileId != null,
-          addLabel: t.addPhoto,
-          takeLabel: t.takePhoto,
-          removeLabel: t.removePhoto,
-          onTake: () => _pickImage(ImageSource.camera),
-          onAdd: () => _pickImage(ImageSource.gallery),
-          onRemove: () => setState(() {
-            _pickedBytes = null;
-            _pickedName = null;
-            _imageFileId = null;
-          }),
-        ),
         const SizedBox(height: 14),
         const Divider(height: 1),
         const SizedBox(height: 14),
@@ -310,26 +273,18 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
                   children: [
                     _Label(t.unit),
                     const SizedBox(height: 6),
-                    SizedBox(
-                      height: 40,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          SelectChip(
-                            label: t.none,
-                            selected: _unitId == null,
-                            onTap: () => setState(() => _unitId = null),
+                    MoonaDropdown<String?>(
+                      value: _unitId,
+                      hint: t.none,
+                      items: [
+                        MoonaDropdownEntry(value: null, label: t.none),
+                        for (final unit in state.units)
+                          MoonaDropdownEntry(
+                            value: unit.id,
+                            label: unit.label(lang),
                           ),
-                          for (final unit in state.units) ...[
-                            const SizedBox(width: 7),
-                            SelectChip(
-                              label: unit.label(lang),
-                              selected: _unitId == unit.id,
-                              onTap: () => setState(() => _unitId = unit.id),
-                            ),
-                          ],
-                        ],
-                      ),
+                      ],
+                      onChanged: (v) => setState(() => _unitId = v),
                     ),
                   ],
                 ),
@@ -366,6 +321,42 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
             maxLines: 4,
           ),
         ],
+        const SizedBox(height: 14),
+        const Divider(height: 1),
+        const SizedBox(height: 16),
+        _Label(t.category),
+        const SizedBox(height: 8),
+        MoonaDropdown<String?>(
+          value: _categoryId,
+          hint: t.none,
+          items: [
+            MoonaDropdownEntry(value: null, label: t.none),
+            for (final category in state.categories)
+              MoonaDropdownEntry(
+                value: category.id,
+                label: category.label(lang),
+                emoji: category.emoji,
+              ),
+          ],
+          onChanged: (v) => setState(() => _categoryId = v),
+        ),
+        const SizedBox(height: 18),
+        _Label(t.image),
+        const SizedBox(height: 8),
+        _ImagePicker(
+          bytes: _pickedBytes,
+          hasExisting: _imageFileId != null,
+          addLabel: t.addPhoto,
+          takeLabel: t.takePhoto,
+          removeLabel: t.removePhoto,
+          onTake: () => _pickImage(ImageSource.camera),
+          onAdd: () => _pickImage(ImageSource.gallery),
+          onRemove: () => setState(() {
+            _pickedBytes = null;
+            _pickedName = null;
+            _imageFileId = null;
+          }),
+        ),
         const SizedBox(height: 22),
         Row(
           children: [

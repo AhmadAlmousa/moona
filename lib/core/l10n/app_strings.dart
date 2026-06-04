@@ -110,6 +110,15 @@ class AppStrings {
   String get longPressHint =>
       isArabic ? 'اضغط مطولاً للتعديل' : 'Long-press to edit';
 
+  // sorting + grouping
+  String get sortBy => isArabic ? 'ترتيب حسب' : 'Sort by';
+  String get sortName => isArabic ? 'الاسم' : 'Name';
+  String get grouped => isArabic ? 'تجميع' : 'Grouped';
+  String get groupedDesc => isArabic
+      ? 'تقسيم القائمة بعنوان لكل مجموعة'
+      : 'Split the list with a header per group';
+  String get ungrouped => isArabic ? 'أخرى' : 'Other';
+
   // item / form
   String get addTitle => isArabic ? 'إضافة صنف' : 'Add item';
   String get editTitle => isArabic ? 'تعديل الصنف' : 'Edit item';

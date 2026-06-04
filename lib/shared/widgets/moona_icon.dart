@@ -37,6 +37,7 @@ const Map<String, String> _iconPaths = {
   'list': 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
   'tag': 'M3 11l8-8 9 9-8 8-9-9zM7.5 7.5h.01',
   'store': 'M4 9l1-4h14l1 4M5 9h14v10a1 1 0 01-1 1H6a1 1 0 01-1-1V9zM4 9h16',
+  'sort': 'M4 6h13M4 12h8M4 18h4',
 };
 
 String _svgFor(String name, double strokeWidth) {

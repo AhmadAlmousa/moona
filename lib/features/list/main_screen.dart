@@ -5,11 +5,13 @@ import '../../app/app_state.dart';
 import '../../app/providers.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/moona_colors.dart';
+import '../../data/models/models.dart';
 import '../../shared/widgets/widgets.dart';
 import '../sharing/settings_sheet.dart';
 import '../trash/trash_sheet.dart';
 import 'item_card.dart';
 import 'item_form.dart';
+import 'sort_sheet.dart';
 
 /// The working shopping list — the app's primary screen.
 class MainScreen extends ConsumerWidget {
@@ -22,11 +24,30 @@ class MainScreen extends ConsumerWidget {
     final controller = ref.read(appControllerProvider.notifier);
     final t = state.t;
     final items = state.visibleItems;
-    final showBadge = state.filter == 'all';
+    // Grouping by category already labels each section, so the per-card badge
+    // would be redundant there.
+    final showBadge =
+        state.filter == 'all' &&
+        !(state.grouped && state.sortKey == SortKey.category);
     final sharingActive =
         state.isShared ||
         state.sharing.acceptedOutgoing != null ||
         state.sharing.pendingIncoming.isNotEmpty;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+
+    final entries = <_ListEntry>[];
+    if (state.grouped) {
+      for (final group in state.groupedVisibleItems) {
+        entries.add(_HeaderEntry(group.label, group.items.length));
+        for (final item in group.items) {
+          entries.add(_ItemEntry(item));
+        }
+      }
+    } else {
+      for (final item in items) {
+        entries.add(_ItemEntry(item));
+      }
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -45,7 +66,8 @@ class MainScreen extends ConsumerWidget {
                   dark: state.dark,
                   trashCount: state.trash.length,
                   sharingActive: sharingActive,
-                  onLanguage: controller.toggleLang,
+                  grouped: state.grouped,
+                  onSort: () => showSortSheet(context),
                   onTrash: () => showTrashSheet(context),
                   onTheme: controller.toggleTheme,
                   onSettings: () => showSettingsSheet(context),
@@ -58,13 +80,16 @@ class MainScreen extends ConsumerWidget {
                           filtered: state.filter != 'all',
                           onAdd: () => showItemForm(context, ref),
                         )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 2, 16, 130),
-                          itemCount: items.length + 1,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
+                      : ListView.builder(
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            2,
+                            16,
+                            130 + bottomInset,
+                          ),
+                          itemCount: entries.length + 1,
                           itemBuilder: (context, index) {
-                            if (index == items.length) {
+                            if (index == entries.length) {
                               return Padding(
                                 padding: const EdgeInsets.only(
                                   top: 4,
@@ -85,20 +110,33 @@ class MainScreen extends ConsumerWidget {
                                 ),
                               );
                             }
-                            final item = items[index];
-                            return ItemCard(
-                              item: item,
-                              showBadge: showBadge,
-                              onEdit: () =>
-                                  showItemForm(context, ref, editing: item),
-                            );
+                            return switch (entries[index]) {
+                              _HeaderEntry(:final label, :final count) =>
+                                _GroupHeader(
+                                  label: label,
+                                  count: count,
+                                  first: index == 0,
+                                ),
+                              _ItemEntry(:final item) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: ItemCard(
+                                  item: item,
+                                  showBadge: showBadge,
+                                  onEdit: () => showItemForm(
+                                    context,
+                                    ref,
+                                    editing: item,
+                                  ),
+                                ),
+                              ),
+                            };
                           },
                         ),
                 ),
               ],
             ),
             PositionedDirectional(
-              bottom: 22,
+              bottom: 22 + bottomInset,
               end: 20,
               child: _AddFab(
                 label: t.addItem,
@@ -112,6 +150,77 @@ class MainScreen extends ConsumerWidget {
   }
 }
 
+/// A row in the working list: either a group sub-header or an item.
+sealed class _ListEntry {
+  const _ListEntry();
+}
+
+class _HeaderEntry extends _ListEntry {
+  const _HeaderEntry(this.label, this.count);
+  final String label;
+  final int count;
+}
+
+class _ItemEntry extends _ListEntry {
+  const _ItemEntry(this.item);
+  final ListItem item;
+}
+
+/// Sub-header shown above each group when grouping is on.
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({
+    required this.label,
+    required this.count,
+    required this.first,
+  });
+
+  final String label;
+  final int count;
+  final bool first;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: EdgeInsetsDirectional.only(
+        start: 4,
+        end: 4,
+        top: first ? 4 : 18,
+        bottom: 8,
+      ),
+      child: Row(
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: c.primary,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Opacity(
+            opacity: 0.6,
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: c.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.title,
@@ -119,7 +228,8 @@ class _Header extends StatelessWidget {
     required this.dark,
     required this.trashCount,
     required this.sharingActive,
-    required this.onLanguage,
+    required this.grouped,
+    required this.onSort,
     required this.onTrash,
     required this.onTheme,
     required this.onSettings,
@@ -130,7 +240,8 @@ class _Header extends StatelessWidget {
   final bool dark;
   final int trashCount;
   final bool sharingActive;
-  final VoidCallback onLanguage;
+  final bool grouped;
+  final VoidCallback onSort;
   final VoidCallback onTrash;
   final VoidCallback onTheme;
   final VoidCallback onSettings;
@@ -180,10 +291,11 @@ class _Header extends StatelessWidget {
             ),
           ),
           MoonaIconButton(
-            icon: 'globe',
+            icon: 'sort',
             size: 20,
             dim: true,
-            onPressed: onLanguage,
+            badge: grouped,
+            onPressed: onSort,
           ),
           MoonaIconButton(
             icon: 'trash',

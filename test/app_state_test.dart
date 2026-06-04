@@ -40,7 +40,7 @@ void main() {
       item('b', category: 'meats'),
       item('c', important: true, category: 'fish'),
     ]);
-    expect(state.sortedItems.map((i) => i.id).toList(), ['c', 'a', 'b']);
+    expect(state.visibleItems.map((i) => i.id).toList(), ['c', 'a', 'b']);
   });
 
   test('categoryCounts and visibleCategories ignore empty categories', () {
@@ -63,6 +63,20 @@ void main() {
       item('b', category: 'meats'),
     ], filter: 'meats');
     expect(state.visibleItems.map((i) => i.id).toList(), ['b']);
+  });
+
+  test('groupedVisibleItems buckets by category with Other last', () {
+    final state =
+        stateWith([
+          item('a', category: 'grocery'),
+          item('b', category: 'meats'),
+          item('c', category: 'grocery'),
+          item('d'),
+        ]).copyWith(sortKey: SortKey.category, grouped: true);
+    final groups = state.groupedVisibleItems;
+    expect(groups.map((g) => g.label).toList(), ['Grocery', 'Meats', 'Other']);
+    expect(groups.first.items.map((i) => i.id).toList(), ['a', 'c']);
+    expect(groups.last.items.map((i) => i.id).toList(), ['d']);
   });
 
   test('nameFor falls back to the user id when unknown', () {
