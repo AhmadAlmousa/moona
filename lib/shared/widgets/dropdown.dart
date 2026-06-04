@@ -5,15 +5,10 @@ import 'moona_icon.dart';
 
 /// One entry in a [MoonaDropdown] menu.
 class MoonaDropdownEntry<T> {
-  const MoonaDropdownEntry({
-    required this.value,
-    required this.label,
-    this.emoji,
-  });
+  const MoonaDropdownEntry({required this.value, required this.label});
 
   final T value;
   final String label;
-  final String? emoji;
 }
 
 /// Field-styled dropdown matching [MoonaField]: a rounded outlined box showing
@@ -42,8 +37,7 @@ class MoonaDropdown<T> extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final c = context.c;
     final box = context.findRenderObject() as RenderBox;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final offset = box.localToGlobal(Offset.zero, ancestor: overlay);
     final position = RelativeRect.fromLTRB(
       offset.dx,
@@ -73,10 +67,6 @@ class MoonaDropdown<T> extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Row(
               children: [
-                if (items[i].emoji != null && items[i].emoji!.isNotEmpty) ...[
-                  Text(items[i].emoji!, style: const TextStyle(fontSize: 16)),
-                  const SizedBox(width: 9),
-                ],
                 Expanded(
                   child: Text(
                     items[i].label,
@@ -116,10 +106,6 @@ class MoonaDropdown<T> extends StatelessWidget {
         ),
         child: Row(
           children: [
-            if (selected?.emoji != null && selected!.emoji!.isNotEmpty) ...[
-              Text(selected.emoji!, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 9),
-            ],
             Expanded(
               child: Text(
                 selected?.label ?? hint ?? '',

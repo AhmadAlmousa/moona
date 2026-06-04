@@ -293,6 +293,11 @@ class FakeMoonaRepository implements MoonaRepository {
   }
 
   @override
+  Future<bool> restoreSession() async {
+    return _currentUserId != null;
+  }
+
+  @override
   Future<void> signOut() async {
     _currentUserId = null;
   }

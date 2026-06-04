@@ -38,6 +38,7 @@ abstract final class FunctionIds {
   static const respondShare = 'respondShare';
   static const unlinkShare = 'unlinkShare';
   static const getSharingStatus = 'getSharingStatus';
+  static const createImageViewToken = 'createImageViewToken';
   static const adminList = 'adminList';
   static const adminCreate = 'adminCreate';
   static const adminUpdate = 'adminUpdate';

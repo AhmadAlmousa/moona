@@ -106,17 +106,96 @@ void main() {
     expect(repo.profiles['newViewer']?['activeReceivedOwnerId'], 'owner');
     expect(repo.refreshedOwners.last, 'owner');
   });
+
+  test('bootstrap includes profile lookup and resolved share/trash names',
+      () async {
+    final repo = FakeRepo();
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk'},
+    );
+    await trashItem(
+      repo: repo,
+      actorId: 'viewer',
+      payload: {'itemId': created['item'][r'$id']},
+    );
+
+    final result = await getBootstrapData(
+      repo: repo,
+      actorId: 'owner',
+      payload: {},
+    );
+
+    final profiles = result['profiles'] as JsonMap;
+    expect(profiles['viewer']['displayName'], 'Viewer');
+    expect(
+      result['visibleList']['trash'].first['trashedByDisplayName'],
+      'Viewer',
+    );
+    expect(
+      result['sharing']['outgoing'].first['counterpartyName'],
+      'Viewer',
+    );
+  });
+
+  test('createImageViewToken verifies list access and item image ownership',
+      () async {
+    final repo = FakeRepo();
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk', 'imageFileId': 'file-1'},
+    );
+
+    final result = await createImageViewToken(
+      repo: repo,
+      actorId: 'viewer',
+      payload: {
+        'itemId': created['item'][r'$id'],
+        'fileId': 'file-1',
+        'ttlSeconds': 120,
+      },
+    );
+
+    expect(result['bucketId'], imageBucketId);
+    expect(result['fileId'], 'file-1');
+    expect(result['token'], 'secret-file-1');
+    expect(result['ttlSeconds'], 120);
+
+    await expectLater(
+      () => createImageViewToken(
+        repo: repo,
+        actorId: 'stranger',
+        payload: {'itemId': created['item'][r'$id'], 'fileId': 'file-1'},
+      ),
+      throwsMoonaCode(ErrorCodes.unauthorized),
+    );
+
+    await expectLater(
+      () => createImageViewToken(
+        repo: repo,
+        actorId: 'owner',
+        payload: {'itemId': created['item'][r'$id'], 'fileId': 'other-file'},
+      ),
+      throwsMoonaCode(ErrorCodes.notFound),
+    );
+  });
 }
 
 class FakeRepo {
   final profiles = <String, JsonMap>{
     'owner': {
       'userId': 'owner',
+      'displayName': 'Owner',
+      'phone': '+966501112233',
       'phoneDigits': '966501112233',
       'activeReceivedOwnerId': '',
     },
     'viewer': {
       'userId': 'viewer',
+      'displayName': 'Viewer',
+      'phone': '+966507654321',
       'phoneDigits': '966507654321',
       'activeReceivedOwnerId': 'owner',
     },
@@ -178,6 +257,10 @@ class FakeRepo {
           .where((share) =>
               share['ownerId'] == ownerId && share['status'] == 'accepted')
           .toList();
+
+  Future<List<JsonMap>> listCategories() async => const [];
+
+  Future<List<JsonMap>> listUnits() async => const [];
 
   Future<List<JsonMap>> listProducts({bool activeOnly = true}) async =>
       products.values.toList();
@@ -243,6 +326,16 @@ class FakeRepo {
     }
     return {r'$id': fileId};
   }
+
+  Future<JsonMap> createImageViewToken(
+    Object? fileId, {
+    String? expire,
+  }) async =>
+      {
+        r'$id': 'token-$fileId',
+        'secret': 'secret-$fileId',
+        'expire': expire,
+      };
 
   Future<JsonMap?> findShare(Object? ownerId, Object? viewerId) async =>
       shares.values

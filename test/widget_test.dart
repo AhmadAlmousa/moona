@@ -1,18 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:moona/app/providers.dart';
 import 'package:moona/data/repositories/fake_moona_repository.dart';
 import 'package:moona/main.dart';
 import 'package:moona/shared/widgets/buttons.dart';
 
 void main() {
-  setUpAll(() {
-    // Avoid network font fetches during widget tests.
-    GoogleFonts.config.allowRuntimeFetching = false;
-  });
-
   Widget app() => ProviderScope(
     overrides: [repositoryProvider.overrideWithValue(FakeMoonaRepository())],
     child: const MoonaApp(),
@@ -23,7 +17,10 @@ void main() {
     await tester.pump();
 
     expect(find.byType(MoonaButton), findsWidgets);
-    expect(find.textContaining('🧺'), findsOneWidget);
+    expect(
+      find.image(const AssetImage('assets/icon/moona_icon_foreground.png')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('signing in shows the shopping list', (tester) async {

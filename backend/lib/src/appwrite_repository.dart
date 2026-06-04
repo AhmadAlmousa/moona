@@ -31,12 +31,14 @@ class AppwriteRepository {
   AppwriteRepository({required Client adminClient, Client? userClient})
       : adminDatabases = TablesDBAdapter(TablesDB(adminClient)),
         adminStorage = StorageAdapter(Storage(adminClient)),
+        adminTokens = TokensAdapter(Tokens(adminClient)),
         users = UsersAdapter(Users(adminClient)),
         userDatabases =
             userClient == null ? null : TablesDBAdapter(TablesDB(userClient));
 
   final TablesDBAdapter adminDatabases;
   final StorageAdapter adminStorage;
+  final TokensAdapter adminTokens;
   final UsersAdapter users;
   final TablesDBAdapter? userDatabases;
 
@@ -384,6 +386,25 @@ class AppwriteRepository {
         details: {'fileId': value},
       );
     }
+  }
+
+  Future<JsonMap> createImageViewToken(
+    Object? fileId, {
+    String? expire,
+  }) async {
+    final value = (fileId ?? '').toString();
+    if (value.isEmpty) {
+      throw MoonaError(
+        ErrorCodes.invalidInput,
+        'fileId is required.',
+      );
+    }
+    final token = await adminTokens.createFileToken(
+      bucketId: imageBucketId,
+      fileId: value,
+      expire: expire,
+    );
+    return (token.toMap() as Map).cast<String, dynamic>();
   }
 
   Future<List<JsonMap>> adminList(Object? kind) {
@@ -799,6 +820,23 @@ class StorageAdapter {
     required String fileId,
   }) =>
       storage.getFile(bucketId: bucketId, fileId: fileId);
+}
+
+class TokensAdapter {
+  TokensAdapter(this.tokens);
+
+  final Tokens tokens;
+
+  Future<dynamic> createFileToken({
+    required String bucketId,
+    required String fileId,
+    String? expire,
+  }) =>
+      tokens.createFileToken(
+        bucketId: bucketId,
+        fileId: fileId,
+        expire: expire,
+      );
 }
 
 class UsersAdapter {

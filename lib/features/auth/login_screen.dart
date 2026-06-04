@@ -64,7 +64,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ],
                   ),
-                  child: const Text('🧺', style: TextStyle(fontSize: 50)),
+                  child: Image.asset(
+                    'assets/icon/moona_icon_foreground.png',
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.contain,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Text(

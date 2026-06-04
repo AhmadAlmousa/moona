@@ -17,16 +17,21 @@ import 'providers.dart';
 class AppController extends Notifier<AppState> {
   final Map<String, Timer> _scratchTimers = {};
   StreamSubscription<RealtimeChange>? _realtimeSub;
+  bool _disposed = false;
 
   MoonaRepository get _repo => ref.read(repositoryProvider);
   void _toast(String message) => ref.read(toastProvider.notifier).show(message);
 
   @override
   AppState build() {
-    ref.onDispose(_cancelEverything);
+    ref.onDispose(() {
+      _disposed = true;
+      _cancelEverything();
+    });
     final locale = PlatformDispatcher.instance.locale;
     final deviceDark =
         PlatformDispatcher.instance.platformBrightness == Brightness.dark;
+    Future<void>.microtask(_restoreSession);
     return AppState(
       screen: AppScreen.login,
       lang: locale.languageCode == 'ar' ? 'ar' : 'en',
@@ -35,6 +40,22 @@ class AppController extends Notifier<AppState> {
   }
 
   // ── auth ──────────────────────────────────────────────────────────────
+  Future<void> _restoreSession() async {
+    try {
+      final restored = await _repo.restoreSession();
+      if (_disposed ||
+          !restored ||
+          state.screen != AppScreen.login ||
+          state.busy) {
+        return;
+      }
+      await _loadBootstrap();
+      if (!_disposed) _subscribeRealtime();
+    } catch (e, stack) {
+      debugPrint('Moona session restore failed: $e\n$stack');
+    }
+  }
+
   Future<void> signIn(String phone, String password) async {
     state = state.copyWith(busy: true, loginError: null);
     try {
@@ -139,7 +160,7 @@ class AppController extends Notifier<AppState> {
   Future<bool> addItem(ItemFormData form) async {
     try {
       final item = await _repo.addItem(form);
-      state = state.copyWith(items: [...state.items, item]);
+      state = state.copyWith(items: _upsertActiveItem(state.items, item));
       _toast(state.t.itemAdded);
       return true;
     } on MoonaException catch (e) {
@@ -379,6 +400,12 @@ class AppController extends Notifier<AppState> {
   }
 
   // ── helpers ────────────────────────────────────────────────────────────
+  List<ListItem> _upsertActiveItem(List<ListItem> items, ListItem item) => [
+    for (final existing in items)
+      if (existing.id != item.id) existing,
+    item,
+  ];
+
   String _messageFor(MoonaException e) => switch (e.code) {
     MoonaException.duplicateItem => state.t.duplicate,
     MoonaException.shareSelf => state.t.shareSelf,

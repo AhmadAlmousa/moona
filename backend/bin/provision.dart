@@ -409,4 +409,5 @@ const functionScopes = [
   ProjectKeyScopes.bucketsRead,
   ProjectKeyScopes.filesRead,
   ProjectKeyScopes.filesWrite,
+  ProjectKeyScopes.tokensWrite,
 ];

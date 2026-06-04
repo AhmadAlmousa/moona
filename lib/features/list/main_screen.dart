@@ -122,11 +122,8 @@ class MainScreen extends ConsumerWidget {
                                 child: ItemCard(
                                   item: item,
                                   showBadge: showBadge,
-                                  onEdit: () => showItemForm(
-                                    context,
-                                    ref,
-                                    editing: item,
-                                  ),
+                                  onEdit: () =>
+                                      showItemForm(context, ref, editing: item),
                                 ),
                               ),
                             };
@@ -349,7 +346,6 @@ class _CategoryBar extends StatelessWidget {
             const SizedBox(width: 9),
             CategoryChip(
               label: category.label(state.lang),
-              emoji: category.emoji,
               count: counts[category.id] ?? 0,
               selected: state.filter == category.id,
               onTap: () => onSelect(category.id),
@@ -389,9 +385,10 @@ class _EmptyState extends StatelessWidget {
                 color: c.surfaceContainer,
                 borderRadius: BorderRadius.circular(30),
               ),
-              child: Text(
-                filtered ? '🔍' : '🛒',
-                style: const TextStyle(fontSize: 48),
+              child: MoonaIcon(
+                filtered ? 'search' : 'list',
+                size: 46,
+                color: c.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 16),

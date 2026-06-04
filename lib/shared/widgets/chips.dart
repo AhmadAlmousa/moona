@@ -10,14 +10,12 @@ class CategoryChip extends StatelessWidget {
     required this.count,
     required this.selected,
     required this.onTap,
-    this.emoji,
   });
 
   final String label;
   final int count;
   final bool selected;
   final VoidCallback onTap;
-  final String? emoji;
 
   @override
   Widget build(BuildContext context) {
@@ -39,10 +37,6 @@ class CategoryChip extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (emoji != null && emoji!.isNotEmpty) ...[
-                  Text(emoji!, style: const TextStyle(fontSize: 16)),
-                  const SizedBox(width: 7),
-                ],
                 Text(
                   label,
                   style: TextStyle(
@@ -79,13 +73,11 @@ class SelectChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.emoji,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final String? emoji;
 
   @override
   Widget build(BuildContext context) {
@@ -109,10 +101,6 @@ class SelectChip extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (emoji != null && emoji!.isNotEmpty) ...[
-                Text(emoji!, style: const TextStyle(fontSize: 15)),
-                const SizedBox(width: 6),
-              ],
               Text(
                 label,
                 style: TextStyle(

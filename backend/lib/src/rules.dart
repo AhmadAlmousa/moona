@@ -47,6 +47,13 @@ bool canMutateOwnerList(
   });
 }
 
+bool canReadOwnerList(
+  String actorId,
+  String ownerId, [
+  List<Map<String, dynamic>> shares = const [],
+]) =>
+    canMutateOwnerList(actorId, ownerId, shares);
+
 void assertCanMutateOwnerList(
   String actorId,
   String ownerId, [
@@ -56,6 +63,20 @@ void assertCanMutateOwnerList(
     throw MoonaError(
       ErrorCodes.unauthorized,
       'Only the owner or accepted viewers can mutate this list.',
+      status: 403,
+    );
+  }
+}
+
+void assertCanReadOwnerList(
+  String actorId,
+  String ownerId, [
+  List<Map<String, dynamic>> shares = const [],
+]) {
+  if (!canReadOwnerList(actorId, ownerId, shares)) {
+    throw MoonaError(
+      ErrorCodes.unauthorized,
+      'Only the owner or accepted viewers can read this list.',
       status: 403,
     );
   }

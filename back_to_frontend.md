@@ -1,6 +1,33 @@
 # Moona Backend To Frontend Contract
 
-Last updated: 2026-06-03
+Last updated: 2026-06-04
+
+> **Backend/dev investigation note (2026-06-04, mobile login + duplicate add):**
+> I found that the app never restored an existing Appwrite client session on
+> startup, so mobile reruns always landed on the login screen even when the SDK
+> still had a valid session. I also broadened auth error mapping so Appwrite
+> account-conflict variants surface as "Incorrect password" instead of the
+> generic error, and added a double-submit guard for the add/edit sheet. Frontend
+> owner: please review the item form UX change requested by the user — category
+> is now intended to sit directly below the Important toggle and default to
+> `grocery` for new items.
+
+> **Backend dev note (2026-06-04, local changes pending deploy):**
+> I picked up the remaining Q3/Q4/Q8 items after reviewing the frontend dev's
+> deploy handoff. Backend code now enriches bootstrap/sharing responses with a
+> `profiles` lookup plus `counterpartyName`/`counterpartyPhone`, adds
+> `trashedByDisplayName` to returned trash rows, and adds
+> `createImageViewToken` for mobile-safe private image views. This is **not live
+> yet** until `moonaApi` is redeployed with the updated Dart bundle and the added
+> `tokens.write` function scope.
+
+> **Deploy note (2026-06-03, pushed by the frontend dev acting as backend dev):**
+> `moonaApi` is now running the **Dart** build (`runtime: dart-3.1`, active
+> deployment `6a2054560278461c89c5`, verified healthy). The Node→Dart migration
+> is live, so the `ensureProfile` idempotency fix (preserves
+> `displayName/language/theme` on returning login) is now in production. Wire
+> contract is unchanged — no client change needed. Full account + a build caveat
+> for the backend dev in `backend/DEPLOY_LOG.md`.
 
 ## Appwrite IDs
 
@@ -34,6 +61,7 @@ Last updated: 2026-06-03
   - `respondShare`
   - `unlinkShare`
   - `getSharingStatus`
+  - `createImageViewToken`
   - `adminList`
   - `adminCreate`
   - `adminUpdate`
@@ -108,7 +136,26 @@ Returns `{ "profile": { ... } }`.
 ```
 
 Returns profile, visible list owner/shared state, active items, trash items,
-catalogs, and sharing status.
+catalogs, sharing status, and a `profiles` lookup for display names.
+
+Response additions pending deploy:
+
+```json
+{
+  "profiles": {
+    "user-id": {
+      "userId": "user-id",
+      "displayName": "Noor",
+      "phone": "+966501112233",
+      "phoneDigits": "966501112233"
+    }
+  }
+}
+```
+
+Returned share rows also include `counterpartyId`, `counterpartyName`, and
+`counterpartyPhone`. Returned trash rows include `trashedByDisplayName` when the
+profile is available.
 
 `searchProducts`
 
@@ -207,6 +254,62 @@ Alternatively owner can send `{ "viewerId": "user-id" }`, and viewer can send
 ```json
 {}
 ```
+
+Pending deploy, returns:
+
+```json
+{
+  "sharing": {
+    "activeReceivedOwnerId": "",
+    "outgoing": [
+      {
+        "$id": "share-id",
+        "ownerId": "owner-id",
+        "viewerId": "viewer-id",
+        "status": "accepted",
+        "counterpartyId": "viewer-id",
+        "counterpartyName": "Noor",
+        "counterpartyPhone": "+966501112233"
+      }
+    ],
+    "incoming": []
+  },
+  "profiles": {
+    "viewer-id": {
+      "userId": "viewer-id",
+      "displayName": "Noor",
+      "phone": "+966501112233",
+      "phoneDigits": "966501112233"
+    }
+  }
+}
+```
+
+`createImageViewToken`
+
+```json
+{ "itemId": "list-item-id", "fileId": "file-id", "ttlSeconds": 900 }
+```
+
+`ttlSeconds` is optional and clamped to 60-3600 seconds. The backend verifies
+that the item owns the image file and that the caller is the list owner or an
+accepted viewer before issuing a token.
+
+Returns:
+
+```json
+{
+  "bucketId": "item_images",
+  "fileId": "file-id",
+  "tokenId": "token-id",
+  "token": "jwt-file-token",
+  "expire": "2026-06-04T12:00:00.000Z",
+  "ttlSeconds": 900
+}
+```
+
+Use the token with Appwrite Storage `getFileView` / `getFilePreview`, or append
+it to the existing URL as `&token=<encoded token>`.
 
 Admin functions require the authenticated Appwrite user ID to be listed in
 `MOONA_ADMIN_USER_IDS`.

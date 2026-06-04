@@ -8,7 +8,7 @@ import 'sheet.dart';
 
 /// A [MoonaField] for phone numbers with a leading country-code selector.
 ///
-/// The selected [country] dial code is shown as a tappable chip (flag + `+code`)
+/// The selected [country] dial code is shown as a tappable chip (`ISO +code`)
 /// that opens a searchable country picker; the text field holds only the local
 /// number. Callers combine the two with `composeInternationalPhone` on submit.
 class MoonaPhoneField extends StatelessWidget {
@@ -65,7 +65,7 @@ class MoonaPhoneField extends StatelessWidget {
   }
 }
 
-/// The leading flag + dial-code chip, with a divider separating it from the
+/// The leading ISO + dial-code chip, with a divider separating it from the
 /// number input.
 class _CountryCodeButton extends StatelessWidget {
   const _CountryCodeButton({required this.country, required this.onTap});
@@ -82,7 +82,7 @@ class _CountryCodeButton extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(country.flag, style: const TextStyle(fontSize: 20)),
+          _CountryIsoBadge(country.iso),
           const SizedBox(width: 6),
           Text(
             '+${country.dialCode}',
@@ -203,7 +203,7 @@ class _CountryRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
         child: Row(
           children: [
-            Text(country.flag, style: const TextStyle(fontSize: 24)),
+            _CountryIsoBadge(country.iso),
             const SizedBox(width: 14),
             Expanded(
               child: Text(
@@ -231,6 +231,36 @@ class _CountryRow extends StatelessWidget {
               MoonaIcon('check', size: 20, color: c.primary),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CountryIsoBadge extends StatelessWidget {
+  const _CountryIsoBadge(this.iso);
+
+  final String iso;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      width: 34,
+      height: 24,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        iso.toUpperCase(),
+        textDirection: TextDirection.ltr,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+          color: c.onSurfaceVariant,
+          letterSpacing: 0,
         ),
       ),
     );

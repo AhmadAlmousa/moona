@@ -102,7 +102,7 @@ class ShopCategory {
     id: (m['stableId'] ?? m[r'$id'] ?? m['id'] ?? '').toString(),
     nameAr: _string(m, 'nameAr'),
     nameEn: _string(m, 'nameEn'),
-    emoji: _string(m, 'emoji', '📦'),
+    emoji: _string(m, 'emoji'),
   );
 }
 

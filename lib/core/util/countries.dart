@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-/// A country entry for the phone-number country-code picker: an ISO code (used to
-/// derive the flag emoji), the dial code (digits only), and bilingual names.
+/// A country entry for the phone-number country-code picker: an ISO code, the
+/// dial code (digits only), and bilingual names.
 @immutable
 class Country {
   const Country({
@@ -19,11 +19,6 @@ class Country {
 
   final String nameEn;
   final String nameAr;
-
-  /// Flag emoji built from the ISO code's two regional-indicator symbols.
-  String get flag => iso.toUpperCase().codeUnits
-      .map((unit) => String.fromCharCode(0x1F1E6 + unit - 0x41))
-      .join();
 
   String name(bool isArabic) => isArabic ? nameAr : nameEn;
 
@@ -51,7 +46,12 @@ const Country kDefaultCountry = Country(
 /// (the core audience), then common expatriate origins and a few majors.
 const List<Country> kCountries = [
   kDefaultCountry,
-  Country(iso: 'AE', dialCode: '971', nameEn: 'United Arab Emirates', nameAr: 'الإمارات'),
+  Country(
+    iso: 'AE',
+    dialCode: '971',
+    nameEn: 'United Arab Emirates',
+    nameAr: 'الإمارات',
+  ),
   Country(iso: 'KW', dialCode: '965', nameEn: 'Kuwait', nameAr: 'الكويت'),
   Country(iso: 'QA', dialCode: '974', nameEn: 'Qatar', nameAr: 'قطر'),
   Country(iso: 'BH', dialCode: '973', nameEn: 'Bahrain', nameAr: 'البحرين'),
@@ -74,6 +74,16 @@ const List<Country> kCountries = [
   Country(iso: 'BD', dialCode: '880', nameEn: 'Bangladesh', nameAr: 'بنغلاديش'),
   Country(iso: 'PH', dialCode: '63', nameEn: 'Philippines', nameAr: 'الفلبين'),
   Country(iso: 'ID', dialCode: '62', nameEn: 'Indonesia', nameAr: 'إندونيسيا'),
-  Country(iso: 'US', dialCode: '1', nameEn: 'United States', nameAr: 'الولايات المتحدة'),
-  Country(iso: 'GB', dialCode: '44', nameEn: 'United Kingdom', nameAr: 'المملكة المتحدة'),
+  Country(
+    iso: 'US',
+    dialCode: '1',
+    nameEn: 'United States',
+    nameAr: 'الولايات المتحدة',
+  ),
+  Country(
+    iso: 'GB',
+    dialCode: '44',
+    nameEn: 'United Kingdom',
+    nameAr: 'المملكة المتحدة',
+  ),
 ];

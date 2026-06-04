@@ -69,7 +69,7 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
     _note = TextEditingController(text: editing?.note ?? '');
     _count = editing?.count ?? 1;
     _unitId = editing?.unitId;
-    _categoryId = editing?.categoryId;
+    _categoryId = editing == null ? _defaultCategoryId() : editing.categoryId;
     _important = editing?.important ?? false;
     _imageFileId = editing?.imageFileId;
     _expanded =
@@ -79,6 +79,14 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
             _brand.text.isNotEmpty ||
             _seller.text.isNotEmpty ||
             _note.text.isNotEmpty);
+  }
+
+  String? _defaultCategoryId() {
+    final categories = ref.read(appControllerProvider).categories;
+    for (final category in categories) {
+      if (category.id == 'grocery') return category.id;
+    }
+    return categories.isEmpty ? null : categories.first.id;
   }
 
   @override
@@ -142,6 +150,7 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
   }
 
   Future<void> _submit() async {
+    if (_busy) return;
     final state = ref.read(appControllerProvider);
     final name = _name.text.trim();
     if (name.isEmpty) {
@@ -222,6 +231,22 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
           title: t.important,
           description: t.importantDesc,
           onChanged: (v) => setState(() => _important = v),
+        ),
+        const SizedBox(height: 14),
+        _Label(t.category),
+        const SizedBox(height: 8),
+        MoonaDropdown<String?>(
+          value: _categoryId,
+          hint: t.none,
+          items: [
+            MoonaDropdownEntry(value: null, label: t.none),
+            for (final category in state.categories)
+              MoonaDropdownEntry(
+                value: category.id,
+                label: category.label(lang),
+              ),
+          ],
+          onChanged: (v) => setState(() => _categoryId = v),
         ),
         const SizedBox(height: 14),
         const Divider(height: 1),
@@ -322,25 +347,6 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
           ),
         ],
         const SizedBox(height: 14),
-        const Divider(height: 1),
-        const SizedBox(height: 16),
-        _Label(t.category),
-        const SizedBox(height: 8),
-        MoonaDropdown<String?>(
-          value: _categoryId,
-          hint: t.none,
-          items: [
-            MoonaDropdownEntry(value: null, label: t.none),
-            for (final category in state.categories)
-              MoonaDropdownEntry(
-                value: category.id,
-                label: category.label(lang),
-                emoji: category.emoji,
-              ),
-          ],
-          onChanged: (v) => setState(() => _categoryId = v),
-        ),
-        const SizedBox(height: 18),
         _Label(t.image),
         const SizedBox(height: 8),
         _ImagePicker(

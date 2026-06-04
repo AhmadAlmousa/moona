@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'errors.dart';
+import 'ids.dart';
 import 'normalization.dart';
 import 'rules.dart';
 
@@ -63,6 +64,17 @@ Future<JsonMap> getBootstrapData({
   final items = listOfMaps(await repo.listActiveItems(ownerId));
   final trash = listOfMaps(await repo.listTrashItems(ownerId));
   final shares = listOfMaps(await repo.listSharesForParticipant(actorId));
+  final profiles = await profileLookup(repo, [
+    actorId,
+    ownerId,
+    ...shareParticipantIds(shares),
+    ...trash.map((item) => item['trashedByUserId']),
+  ]);
+  final enrichedShares = shares
+      .map((share) => withCounterpartyProfile(actorId, share, profiles))
+      .toList();
+  final enrichedTrash =
+      trash.map((item) => withTrashActorDisplayName(item, profiles)).toList();
 
   return {
     'profile': profile,
@@ -70,14 +82,15 @@ Future<JsonMap> getBootstrapData({
       'ownerId': ownerId,
       'isShared': ownerId != actorId,
       'items': sortListItems(items),
-      'trash': sortTrashItems(trash),
+      'trash': sortTrashItems(enrichedTrash),
     },
     'catalogs': {
       'categories': categories,
       'units': units,
       'products': products,
     },
-    'sharing': sharingStatus(actorId, profile, shares),
+    'sharing': sharingStatus(actorId, profile, enrichedShares),
+    'profiles': profiles,
   };
 }
 
@@ -359,7 +372,73 @@ Future<JsonMap> getSharingStatus({
   requireActor(actorId);
   final profile = asMap(await repo.getProfile(actorId));
   final shares = listOfMaps(await repo.listSharesForParticipant(actorId));
-  return {'sharing': sharingStatus(actorId, profile, shares)};
+  final profiles = await profileLookup(repo, [
+    actorId,
+    ...shareParticipantIds(shares),
+  ]);
+  final enrichedShares = shares
+      .map((share) => withCounterpartyProfile(actorId, share, profiles))
+      .toList();
+  return {
+    'sharing': sharingStatus(actorId, profile, enrichedShares),
+    'profiles': profiles,
+  };
+}
+
+Future<JsonMap> createImageViewToken({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final itemId = (payload['itemId'] ?? '').toString();
+  final fileId = (payload['fileId'] ?? '').toString();
+  if (itemId.isEmpty || fileId.isEmpty) {
+    throw MoonaError(
+      ErrorCodes.invalidInput,
+      'itemId and fileId are required.',
+    );
+  }
+
+  final item = asNullableMap(await repo.getListItem(itemId));
+  if (item == null) throw notFound('List item');
+  if ((item['imageFileId'] ?? '').toString() != fileId) {
+    throw notFound('Image file');
+  }
+
+  final ownerId = (item['ownerId'] ?? '').toString();
+  final ownerShares =
+      listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
+  assertCanReadOwnerList(actorId, ownerId, ownerShares);
+  await repo.validateImageFile(fileId);
+
+  final ttlSeconds =
+      intFrom(payload['ttlSeconds'], fallback: 900).clamp(60, 3600).toInt();
+  final expire = DateTime.now()
+      .toUtc()
+      .add(Duration(seconds: ttlSeconds))
+      .toIso8601String();
+  final token = asMap(
+    await repo.createImageViewToken(fileId, expire: expire),
+  );
+  final secret = (token['secret'] ?? '').toString();
+  if (secret.isEmpty) {
+    throw MoonaError(
+      ErrorCodes.invalidImage,
+      'Could not create an image access token.',
+      status: 500,
+      details: {'fileId': fileId},
+    );
+  }
+
+  return {
+    'bucketId': imageBucketId,
+    'fileId': fileId,
+    'tokenId': token[r'$id'] ?? token['id'] ?? '',
+    'token': secret,
+    'expire': token['expire'] ?? expire,
+    'ttlSeconds': ttlSeconds,
+  };
 }
 
 Future<JsonMap> adminList({
@@ -469,6 +548,7 @@ final operations = <String, Operation>{
   'respondShare': respondShare,
   'unlinkShare': unlinkShare,
   'getSharingStatus': getSharingStatus,
+  'createImageViewToken': createImageViewToken,
   'adminList': adminList,
   'adminCreate': adminCreate,
   'adminUpdate': adminUpdate,
@@ -530,6 +610,74 @@ JsonMap sharingStatus(
       'incoming':
           shares.where((share) => share['viewerId'] == actorId).toList(),
     };
+
+Iterable<String> shareParticipantIds(List<JsonMap> shares) sync* {
+  for (final share in shares) {
+    final ownerId = (share['ownerId'] ?? '').toString();
+    final viewerId = (share['viewerId'] ?? '').toString();
+    if (ownerId.isNotEmpty) yield ownerId;
+    if (viewerId.isNotEmpty) yield viewerId;
+  }
+}
+
+Future<JsonMap> profileLookup(dynamic repo, Iterable<Object?> ids) async {
+  final lookup = <String, dynamic>{};
+  final uniqueIds = ids
+      .map((id) => (id ?? '').toString())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+
+  for (final id in uniqueIds) {
+    try {
+      final profile = asNullableMap(await repo.getProfile(id));
+      if (profile == null || profile.isEmpty) continue;
+      lookup[id] = profileSummary(id, profile);
+    } catch (_) {
+      // Missing profile rows should not break bootstrap/sharing responses.
+    }
+  }
+
+  return lookup;
+}
+
+JsonMap profileSummary(String userId, JsonMap profile) => {
+      'userId': (profile['userId'] ?? userId).toString(),
+      'displayName': (profile['displayName'] ?? '').toString(),
+      'phone': (profile['phone'] ?? '').toString(),
+      'phoneDigits': (profile['phoneDigits'] ?? '').toString(),
+    };
+
+JsonMap withCounterpartyProfile(
+  String actorId,
+  JsonMap share,
+  JsonMap profiles,
+) {
+  final counterpartyId = share['ownerId'] == actorId
+      ? (share['viewerId'] ?? '').toString()
+      : (share['ownerId'] ?? '').toString();
+  final profile = asNullableMap(profiles[counterpartyId]);
+  if (profile == null) return share;
+
+  return {
+    ...share,
+    'counterpartyId': counterpartyId,
+    'counterpartyName': profile['displayName'] ?? '',
+    'counterpartyPhone': profile['phone'] ?? '',
+  };
+}
+
+JsonMap withTrashActorDisplayName(JsonMap item, JsonMap profiles) {
+  final userId = (item['trashedByUserId'] ?? '').toString();
+  if (userId.isEmpty) return item;
+  final profile = asNullableMap(profiles[userId]);
+  final displayName = (profile?['displayName'] ?? '').toString();
+  if (displayName.isEmpty) return item;
+
+  return {
+    ...item,
+    'trashedByDisplayName': displayName,
+  };
+}
 
 void requireActor(String actorId) {
   if (actorId.isEmpty) throw unauthorized();

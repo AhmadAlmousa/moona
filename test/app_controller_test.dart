@@ -27,6 +27,23 @@ void main() {
     expect(state.lang, 'ar');
   });
 
+  test('restores a persisted repository session on startup', () async {
+    final repo = FakeMoonaRepository();
+    await repo.signIn(phone: '966501112233', password: 'pw');
+    final container = ProviderContainer(
+      overrides: [repositoryProvider.overrideWithValue(repo)],
+    );
+    addTearDown(container.dispose);
+
+    expect(container.read(appControllerProvider).screen, AppScreen.login);
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    final state = container.read(appControllerProvider);
+    expect(state.screen, AppScreen.main);
+    expect(state.profile?.phone, '966501112233');
+    expect(state.items.length, 7);
+  });
+
   test('addItem appends and rejects duplicates', () async {
     final container = makeContainer();
     addTearDown(container.dispose);

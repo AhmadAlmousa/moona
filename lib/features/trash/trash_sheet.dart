@@ -139,10 +139,16 @@ class _TrashRow extends ConsumerWidget {
                 color: c.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(
-                category?.emoji ?? '🛒',
-                style: const TextStyle(fontSize: 23),
-              ),
+              child: category == null
+                  ? MoonaIcon('list', size: 21, color: c.onSurfaceVariant)
+                  : Text(
+                      _categoryInitial(category, lang),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: c.onSurfaceVariant,
+                      ),
+                    ),
             ),
           ),
           const SizedBox(width: 13),
@@ -191,6 +197,11 @@ class _TrashRow extends ConsumerWidget {
       ),
     );
   }
+}
+
+String _categoryInitial(ShopCategory category, String lang) {
+  final label = category.label(lang).trim();
+  return label.isEmpty ? '' : label.substring(0, 1).toUpperCase();
 }
 
 class _RestoreButton extends StatelessWidget {

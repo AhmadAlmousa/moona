@@ -63,6 +63,9 @@ abstract class MoonaRepository {
   /// Returns the resolved [Profile].
   Future<Profile> signIn({required String phone, required String password});
 
+  /// Restores an already persisted client session, if one exists.
+  Future<bool> restoreSession();
+
   Future<void> signOut();
 
   /// Loads everything the main screen needs in one round-trip.

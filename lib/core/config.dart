@@ -54,6 +54,7 @@ class MoonaFunctions {
   static const String respondShare = 'respondShare';
   static const String unlinkShare = 'unlinkShare';
   static const String getSharingStatus = 'getSharingStatus';
+  static const String createImageViewToken = 'createImageViewToken';
 }
 
 /// Appwrite collection ids, used to build realtime channel names.

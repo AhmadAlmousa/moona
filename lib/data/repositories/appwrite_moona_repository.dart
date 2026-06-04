@@ -35,47 +35,29 @@ class AppwriteMoonaRepository implements MoonaRepository {
     required String password,
   }) async {
     final normalized = normalizePhone(phone);
-    final email = normalized.aliasEmail;
-
-    try {
-      await _account.createEmailPasswordSession(
-        email: email,
-        password: password,
-      );
-    } on AppwriteException catch (signInError) {
-      // Appwrite returns the same `user_invalid_credentials` error whether the
-      // password is wrong or the account does not exist yet (it won't reveal
-      // which). Only then do we try to register: if the account already exists,
-      // the password was wrong. Any other failure (network, blocked origin,
-      // server error) is real and must be surfaced — not hidden behind a
-      // new-user signup attempt that fails the same way.
-      if (signInError.type != 'user_invalid_credentials') {
-        throw _mapAuthError(signInError);
-      }
-      try {
-        await _account.create(
-          userId: ID.unique(),
-          email: email,
-          password: password,
-          name: normalized.digits,
-        );
-      } on AppwriteException catch (e) {
-        if (e.type == 'user_already_exists') {
-          throw const MoonaException(MoonaException.wrongPassword);
-        }
-        throw _mapAuthError(e);
-      }
-      await _account.createEmailPasswordSession(
-        email: email,
-        password: password,
-      );
-    }
+    await _establishSession(normalized, password);
 
     final user = await _account.get();
     _userId = user.$id;
 
     final data = await _call(MoonaFunctions.ensureProfile, {'phone': phone});
     return Profile.fromJson(_asMap(data['profile']));
+  }
+
+  @override
+  Future<bool> restoreSession() async {
+    try {
+      final user = await _account.get();
+      _userId = user.$id;
+      final phone = _phoneFromUser(email: user.email, name: user.name);
+      if (phone != null) {
+        await _call(MoonaFunctions.ensureProfile, {'phone': phone});
+      }
+      return true;
+    } on AppwriteException catch (e) {
+      if (_isUnauthorized(e)) return false;
+      throw _mapAuthError(e);
+    }
   }
 
   @override
@@ -285,6 +267,90 @@ class AppwriteMoonaRepository implements MoonaRepository {
 
   Map<String, dynamic> _asMap(dynamic value) =>
       value is Map ? value.cast<String, dynamic>() : <String, dynamic>{};
+
+  Future<void> _establishSession(
+    NormalizedPhone normalized,
+    String password,
+  ) async {
+    try {
+      await _createEmailSession(normalized.aliasEmail, password);
+      return;
+    } on AppwriteException catch (e) {
+      if (_isSessionAlreadyActive(e)) {
+        if (await _currentSessionMatches(normalized.aliasEmail)) return;
+        await signOut();
+        await _createSessionOrAccount(normalized, password);
+        return;
+      }
+      if (!_isInvalidCredentials(e)) throw _mapAuthError(e);
+    }
+
+    await _createSessionOrAccount(normalized, password);
+  }
+
+  Future<void> _createSessionOrAccount(
+    NormalizedPhone normalized,
+    String password,
+  ) async {
+    try {
+      await _account.create(
+        userId: ID.unique(),
+        email: normalized.aliasEmail,
+        password: password,
+        name: normalized.digits,
+      );
+    } on AppwriteException catch (e) {
+      if (_isExistingUser(e)) {
+        throw const MoonaException(MoonaException.wrongPassword);
+      }
+      throw _mapAuthError(e);
+    }
+
+    try {
+      await _createEmailSession(normalized.aliasEmail, password);
+    } on AppwriteException catch (e) {
+      throw _mapAuthError(e);
+    }
+  }
+
+  Future<void> _createEmailSession(String email, String password) =>
+      _account.createEmailPasswordSession(email: email, password: password);
+
+  Future<bool> _currentSessionMatches(String email) async {
+    try {
+      final user = await _account.get();
+      return user.email.toLowerCase() == email.toLowerCase();
+    } on AppwriteException {
+      return false;
+    }
+  }
+
+  String? _phoneFromUser({required String email, required String name}) {
+    final alias = RegExp(
+      '^phone-(\\d+)@${RegExp.escape(MoonaConfig.aliasEmailDomain)}\$',
+    ).firstMatch(email.toLowerCase());
+    if (alias != null) return '+${alias.group(1)}';
+
+    final digits = name.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 8 && digits.length <= 15) return '+$digits';
+    return null;
+  }
+
+  bool _isInvalidCredentials(AppwriteException e) =>
+      e.type == 'user_invalid_credentials';
+
+  bool _isSessionAlreadyActive(AppwriteException e) =>
+      e.type == 'user_session_already_exists' ||
+      (e.message ?? '').toLowerCase().contains('session') &&
+          (e.message ?? '').toLowerCase().contains('active');
+
+  bool _isExistingUser(AppwriteException e) =>
+      e.code == 409 || (e.type ?? '').contains('already_exists');
+
+  bool _isUnauthorized(AppwriteException e) =>
+      e.code == 401 ||
+      e.type == 'user_unauthorized' ||
+      e.type == 'general_unauthorized_scope';
 
   /// Translates a raw [AppwriteException] from the auth flow into a
   /// [MoonaException] the UI can act on. A null/zero HTTP status means no

@@ -109,6 +109,20 @@ flutter analyze
 flutter test
 ```
 
+## Web release build
+
+For a deployable web bundle, build the default JavaScript target:
+
+```bash
+flutter build web --release
+python3 server.py 8080
+```
+
+Open <http://localhost:8080>. The helper serves `build/web` by default and adds
+the headers Flutter's web engine expects. Do not serve the repository root as a
+static site; that produces missing `flutter_bootstrap.js` / `main.dart.js`
+requests and looks like a permanently loading app.
+
 ## Project layout
 
 - `lib/` — Flutter app (`app/` state + controller, `data/` models + repositories,
