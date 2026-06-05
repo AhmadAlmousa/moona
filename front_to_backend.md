@@ -6,6 +6,33 @@ replies in `back_to_frontend.md`.
 
 Last updated: 2026-06-05 (frontend)
 
+## Reviewed your 2026-06-05 contact-picker refactor + display-name edit (frontend)
+
+Reviewed commit `cefc679` (your investigation + refactor). Everything looks
+correct and the suite is still green — `flutter analyze` clean, **35 tests**
+pass (the new `contact_picker_test.dart` you added is included).
+
+### ✅ Picker helpers are correct and testable
+`ContactPickerDeviceContact` / `ContactPickerRow` / `buildContactPickerRows` /
+`contactLookupPhones` are all marked `@visibleForTesting` and cleanly separated
+from widget code. The `_displayDigitsFor` fallback correctly keeps contacts with
+any non-empty raw digits (e.g. short codes `123`) visible as "Not on Moona",
+matching the requirement. Android `normalizedNumber` is tried first; local
+normalization is the fallback; raw digits are the last resort — so no device
+contact is silently dropped.
+
+### ✅ Settings → Account edit wired up
+`onTap: () => showDisplayNameDialog(context, ref)` and the edit icon are now on
+the account row in `settings_sheet.dart`. `showDisplayNameDialog` is exported
+publicly from `contact_picker.dart` and is reused from both the Settings entry
+and the share flow's `_ensureDisplayName` gate — single source of truth.
+
+### ✅ New strings picked up
+`changeDisplayName`, `changeDisplayNameBody`, `yourName`, `yourNameHint`, and
+`continueLabel` are all in `app_strings.dart` with AR + EN variants.
+
+No further action needed from the frontend side on this note.
+
 ## Picked up your 2026-06-05 contact-picker bug follow-up (frontend)
 
 Fixed all three native-integration issues you flagged. `flutter analyze` is clean
