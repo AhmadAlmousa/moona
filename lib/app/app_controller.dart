@@ -41,19 +41,22 @@ class AppController extends Notifier<AppState> {
 
   // ── auth ──────────────────────────────────────────────────────────────
   Future<void> _restoreSession() async {
+    if (state.screen != AppScreen.login || state.busy) return;
+    // Show the sign-in indicator (and disable the login form) while we probe
+    // for an existing session and, if found, run profile + bootstrap.
+    state = state.copyWith(busy: true);
     try {
       final restored = await _repo.restoreSession();
-      if (_disposed ||
-          !restored ||
-          state.screen != AppScreen.login ||
-          state.busy) {
+      if (_disposed) return;
+      if (restored && state.screen == AppScreen.login) {
+        await _loadBootstrap();
+        if (!_disposed) _subscribeRealtime();
         return;
       }
-      await _loadBootstrap();
-      if (!_disposed) _subscribeRealtime();
     } catch (e, stack) {
       debugPrint('Moona session restore failed: $e\n$stack');
     }
+    if (!_disposed) state = state.copyWith(busy: false);
   }
 
   Future<void> signIn(String phone, String password) async {
@@ -300,6 +303,43 @@ class AppController extends Notifier<AppState> {
   }
 
   // ── sharing ────────────────────────────────────────────────────────────
+  /// Resolves which of [phones] are registered Moona users. Phone numbers only —
+  /// device contact names stay on the device. Degrades to an empty result on
+  /// error so the picker can still offer manual entry.
+  Future<ContactLookupResult> lookupContacts(List<String> phones) async {
+    try {
+      return await _repo.lookupContacts(phones);
+    } catch (_) {
+      return const ContactLookupResult();
+    }
+  }
+
+  /// Whether the profile still lacks a real display name (empty, or just the
+  /// phone number) — used to gate sharing so counterparties never see a raw id.
+  bool get needsDisplayName {
+    final profile = state.profile;
+    if (profile == null) return false;
+    final name = profile.displayName.trim();
+    if (name.isEmpty) return true;
+    final nameDigits = name.replaceAll(RegExp(r'\D'), '');
+    final phoneDigits = profile.phone.replaceAll(RegExp(r'\D'), '');
+    return nameDigits.isNotEmpty && nameDigits == phoneDigits;
+  }
+
+  /// Persists a chosen display name (optimistic; best-effort persistence) so
+  /// shared lists show a real name instead of a raw user id.
+  Future<void> setDisplayName(String name) async {
+    final trimmed = name.trim();
+    final profile = state.profile;
+    if (trimmed.isEmpty || profile == null) return;
+    state = state.copyWith(profile: profile.copyWith(displayName: trimmed));
+    try {
+      await _repo.updatePreferences(displayName: trimmed);
+    } catch (_) {
+      // Best-effort; the UI already reflects the new name.
+    }
+  }
+
   Future<void> requestShare(String phone) async {
     try {
       final result = await _repo.requestShare(phone);

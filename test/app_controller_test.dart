@@ -121,6 +121,41 @@ void main() {
     },
   );
 
+  test('lookupContacts marks registered, self, and unknown numbers', () async {
+    final container = makeContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appControllerProvider.notifier);
+    await controller.signIn('966501112233', 'pw'); // Noor
+
+    final result = await controller.lookupContacts([
+      '966507654321', // Omar — registered
+      '0501112233', // Noor herself — registered + self
+      '966550000000', // nobody
+    ]);
+
+    // Registered entries come first.
+    expect(result.contacts.first.registered, isTrue);
+    expect(result.registered.length, 2);
+    expect(result.unregistered.length, 1);
+    final self = result.contacts.firstWhere((e) => e.phoneDigits == '966501112233');
+    expect(self.isSelf, isTrue);
+    expect(self.displayName, 'Noor');
+  });
+
+  test('display-name gate: real name needs no prompt; default does', () async {
+    final container = makeContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appControllerProvider.notifier);
+
+    // Unknown number → fake repo seeds displayName == phone digits (a default).
+    await controller.signIn('966500000999', 'pw');
+    expect(controller.needsDisplayName, isTrue);
+
+    await controller.setDisplayName('  Sara  ');
+    expect(container.read(appControllerProvider).profile?.displayName, 'Sara');
+    expect(controller.needsDisplayName, isFalse);
+  });
+
   test('scratch commits the item to trash after the 10s window', () {
     fakeAsync((async) {
       final container = makeContainer();

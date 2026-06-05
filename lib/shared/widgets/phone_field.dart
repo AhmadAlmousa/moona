@@ -82,7 +82,7 @@ class _CountryCodeButton extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _CountryIsoBadge(country.iso),
+          _CountryFlag(country),
           const SizedBox(width: 6),
           Text(
             '+${country.dialCode}',
@@ -203,7 +203,7 @@ class _CountryRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 11),
         child: Row(
           children: [
-            _CountryIsoBadge(country.iso),
+            _CountryFlag(country),
             const SizedBox(width: 14),
             Expanded(
               child: Text(
@@ -232,6 +232,31 @@ class _CountryRow extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Country flag rendered from the `country_code_picker` bundled PNG assets, in a
+/// fixed-width slot so the chip and picker rows stay aligned. Flag emoji are
+/// unreliable on Android, so we use real images and fall back to the ISO text
+/// badge if an asset is ever missing.
+class _CountryFlag extends StatelessWidget {
+  const _CountryFlag(this.country);
+
+  final Country country;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Image.asset(
+        'flags/${country.iso.toLowerCase()}.png',
+        package: 'country_code_picker',
+        width: 32,
+        height: 22,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _CountryIsoBadge(country.iso),
       ),
     );
   }

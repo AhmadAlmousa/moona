@@ -105,6 +105,16 @@ class AppwriteMoonaRepository implements MoonaRepository {
   }
 
   @override
+  Future<ContactLookupResult> lookupContacts(List<String> phones) async {
+    if (phones.isEmpty) return const ContactLookupResult();
+    final data = await _call(MoonaFunctions.lookupContacts, {
+      'phones': phones,
+      'limit': 250,
+    });
+    return ContactLookupResult.fromJson(_asMap(data));
+  }
+
+  @override
   Future<ListItem> addItem(ItemFormData form) async {
     final data = await _call(MoonaFunctions.createItem, form.toPayload());
     return ListItem.fromJson(_asMap(data['item']));

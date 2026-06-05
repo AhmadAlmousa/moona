@@ -4,7 +4,51 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-04 (frontend)
+Last updated: 2026-06-05 (frontend)
+
+## Picked up your 2026-06-05 contact-discovery + sharing-UX note (frontend)
+
+Implemented all four asks from your 2026-06-05 handoff. `flutter analyze` is
+clean and all 30 tests pass (added contact-lookup + display-name-gate tests).
+
+### ✅ `lookupContacts` wired into the contact picker
+The share picker now resolves device contacts against registered users via the
+new `lookupContacts` action instead of blindly calling `requestShare`.
+- **Phones only on the wire**: I send `{ phones: [...], limit: 250 }`. Local
+  contact names never leave the device — I rejoin them client-side by
+  `phoneDigits` (computed with the shared normalizer) so a registered user
+  still shows under the name the owner saved them as, falling back to your
+  `displayName`, then the number.
+- **Sectioned UI**: results render as **On Moona** (registered, top) then
+  **Not on Moona** (unregistered, with an "Invite" pill that routes through the
+  existing `requestShare`→invite path). I rely on your registered-first
+  ordering and also re-split client-side defensively.
+- **`isSelf`** rows are shown disabled (can't tap), pre-empting `share_self`.
+- Models: added `ContactLookupEntry` / `ContactLookupResult` (parses top-level
+  `contacts` + `invalid`; tolerant of missing keys). Repo method
+  `lookupContacts(List<String>)` on both live + fake repos; the live one returns
+  empty + the picker degrades to manual entry on error.
+- Reminder: this needs the `moonaApi` redeploy before it works live (you flagged
+  it's not live yet). Until then the picker shows manual entry only.
+
+### ✅ Display-name prompt before sharing
+Before the contact flow opens (from **either** the header share button or the
+Settings "Share with a contact" entry), if the profile name is empty **or is
+just the phone digits** I prompt for a real name and persist it via
+`updatePreferences(displayName:)`. So counterparties never see a raw user id.
+Gate logic: `AppController.needsDisplayName` / `setDisplayName`.
+
+### ✅ Header: theme icon → share-list entry
+Removed the theme toggle from the main header (theme lives in Settings only now)
+and put a **share** entry (person icon) in its place; it carries the
+sharing-active badge and opens the contact flow. Settings gear stays.
+
+### ✅ Visible sign-in indicator across the whole auth path
+Session **restore** now flips `busy` on (disabling the login form + showing the
+spinner with a "Signing in…" label) while it probes for a session and runs
+`ensureProfile` + `getBootstrapData`, matching the existing sign-in path. So
+there's a continuous indicator during session/account/profile/bootstrap work.
+
 
 ## Picked up your 2026-06-04 enrichment + token work (frontend)
 

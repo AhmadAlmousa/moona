@@ -330,6 +330,80 @@ List<Share> _shareList(dynamic raw) {
       .toList();
 }
 
+/// One phone number's registration status from `lookupContacts`. Local contact
+/// names are never sent to the backend — the picker rejoins them by
+/// [phoneDigits].
+@immutable
+class ContactLookupEntry {
+  const ContactLookupEntry({
+    required this.phone,
+    required this.phoneDigits,
+    required this.registered,
+    this.userId,
+    this.displayName,
+    this.isSelf = false,
+  });
+
+  final String phone;
+  final String phoneDigits;
+  final bool registered;
+  final String? userId;
+
+  /// Registered user's profile name (not the on-device contact name).
+  final String? displayName;
+
+  /// True when the number resolves to the signed-in user, so the picker can
+  /// disable sharing with yourself before `requestShare` returns `share_self`.
+  final bool isSelf;
+
+  factory ContactLookupEntry.fromJson(Map<String, dynamic> m) =>
+      ContactLookupEntry(
+        phone: _string(m, 'phone'),
+        phoneDigits: _string(m, 'phoneDigits'),
+        registered: _bool(m, 'registered'),
+        userId: _stringOrNull(m, 'userId'),
+        displayName: _stringOrNull(m, 'displayName'),
+        isSelf: _bool(m, 'isSelf'),
+      );
+}
+
+/// Result of `lookupContacts`: registered users first, with split convenience
+/// getters for sectioned UI.
+@immutable
+class ContactLookupResult {
+  const ContactLookupResult({this.contacts = const [], this.invalid = const []});
+
+  final List<ContactLookupEntry> contacts;
+  final List<String> invalid;
+
+  List<ContactLookupEntry> get registered =>
+      contacts.where((e) => e.registered).toList();
+  List<ContactLookupEntry> get unregistered =>
+      contacts.where((e) => !e.registered).toList();
+
+  factory ContactLookupResult.fromJson(Map<String, dynamic> m) {
+    final raw = m['contacts'];
+    final contacts = raw is List
+        ? raw
+              .whereType<Map>()
+              .map((e) => ContactLookupEntry.fromJson(e.cast<String, dynamic>()))
+              .toList()
+        : <ContactLookupEntry>[];
+    final invalidRaw = m['invalid'];
+    final invalid = invalidRaw is List
+        ? invalidRaw
+              .map(
+                (e) => e is Map
+                    ? _string(e.cast<String, dynamic>(), 'phone')
+                    : e.toString(),
+              )
+              .where((s) => s.isNotEmpty)
+              .toList()
+        : <String>[];
+    return ContactLookupResult(contacts: contacts, invalid: invalid);
+  }
+}
+
 @immutable
 class VisibleList {
   const VisibleList({

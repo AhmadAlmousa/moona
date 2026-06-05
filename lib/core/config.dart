@@ -45,6 +45,7 @@ class MoonaFunctions {
   static const String updatePreferences = 'updatePreferences';
   static const String getBootstrapData = 'getBootstrapData';
   static const String searchProducts = 'searchProducts';
+  static const String lookupContacts = 'lookupContacts';
   static const String createItem = 'createItem';
   static const String updateItem = 'updateItem';
   static const String trashItem = 'trashItem';

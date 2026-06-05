@@ -30,6 +30,7 @@ class AppStrings {
       : 'Sign in or create a new account to get started';
   String get password => isArabic ? 'كلمة المرور' : 'Password';
   String get signIn => isArabic ? 'تسجيل الدخول' : 'Sign in';
+  String get signingIn => isArabic ? 'جارٍ تسجيل الدخول…' : 'Signing in…';
   String get newAccountNote => isArabic
       ? 'أول مرة؟ سيتم إنشاء حسابك تلقائياً.'
       : 'First time? Your account is created automatically.';
@@ -77,6 +78,7 @@ class AppStrings {
   String get searchContacts =>
       isArabic ? 'بحث في جهات الاتصال' : 'Search contacts';
   String get onMoona => isArabic ? 'على مونة' : 'On Moona';
+  String get notOnMoona => isArabic ? 'ليسوا على مونة' : 'Not on Moona';
   String get invite => isArabic ? 'دعوة' : 'Invite';
   String get invited => isArabic ? 'تم إرسال الدعوة' : 'Invite sent';
   String get enterPhoneManually =>
@@ -172,6 +174,17 @@ class AppStrings {
   String get bothEdit => isArabic
       ? 'كلاكما يمكنه الإضافة والتعديل في نفس القائمة'
       : 'You both can add and edit the same list';
+  String get shareList => isArabic ? 'مشاركة القائمة' : 'Share list';
+
+  // display-name prompt before sharing (new)
+  String get nameYourselfTitle => isArabic ? 'أضف اسمك' : 'Add your name';
+  String get nameYourselfBody => isArabic
+      ? 'أدخل اسماً يظهر لمن تشاركهم القائمة بدلاً من رقم جوالك.'
+      : 'Enter a name so the people you share with see it instead of your '
+            'phone number.';
+  String get yourName => isArabic ? 'الاسم' : 'Name';
+  String get yourNameHint => isArabic ? 'مثال: نور' : 'e.g. Noor';
+  String get continueLabel => isArabic ? 'متابعة' : 'Continue';
 
   // incoming share request (new)
   String get shareRequestTitle =>

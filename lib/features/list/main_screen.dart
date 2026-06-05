@@ -7,6 +7,7 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/theme/moona_colors.dart';
 import '../../data/models/models.dart';
 import '../../shared/widgets/widgets.dart';
+import '../sharing/contact_picker.dart';
 import '../sharing/settings_sheet.dart';
 import '../trash/trash_sheet.dart';
 import 'item_card.dart';
@@ -63,13 +64,13 @@ class MainScreen extends ConsumerWidget {
                   ownerLine: state.isShared
                       ? '${t.receivingFrom} ${state.ownerName}'
                       : null,
-                  dark: state.dark,
                   trashCount: state.trash.length,
                   sharingActive: sharingActive,
                   grouped: state.grouped,
+                  shareTooltip: t.shareList,
                   onSort: () => showSortSheet(context),
                   onTrash: () => showTrashSheet(context),
-                  onTheme: controller.toggleTheme,
+                  onShare: () => showContactFlow(context, ref),
                   onSettings: () => showSettingsSheet(context),
                 ),
                 _CategoryBar(state: state, onSelect: controller.setFilter),
@@ -118,7 +119,7 @@ class MainScreen extends ConsumerWidget {
                                   first: index == 0,
                                 ),
                               _ItemEntry(:final item) => Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
+                                padding: const EdgeInsets.only(bottom: 8),
                                 child: ItemCard(
                                   item: item,
                                   showBadge: showBadge,
@@ -222,25 +223,25 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.title,
     required this.ownerLine,
-    required this.dark,
     required this.trashCount,
     required this.sharingActive,
     required this.grouped,
+    required this.shareTooltip,
     required this.onSort,
     required this.onTrash,
-    required this.onTheme,
+    required this.onShare,
     required this.onSettings,
   });
 
   final String title;
   final String? ownerLine;
-  final bool dark;
   final int trashCount;
   final bool sharingActive;
   final bool grouped;
+  final String shareTooltip;
   final VoidCallback onSort;
   final VoidCallback onTrash;
-  final VoidCallback onTheme;
+  final VoidCallback onShare;
   final VoidCallback onSettings;
 
   @override
@@ -302,16 +303,17 @@ class _Header extends StatelessWidget {
             onPressed: onTrash,
           ),
           MoonaIconButton(
-            icon: dark ? 'sun' : 'moon',
+            icon: 'person',
             size: 20,
             dim: true,
-            onPressed: onTheme,
+            badge: sharingActive,
+            tooltip: shareTooltip,
+            onPressed: onShare,
           ),
           MoonaIconButton(
             icon: 'settings',
             size: 20,
             dim: true,
-            badge: sharingActive,
             onPressed: onSettings,
           ),
         ],

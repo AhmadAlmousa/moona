@@ -149,6 +149,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 if (state.busy) ...[
                   const SizedBox(height: 18),
                   const CircularProgressIndicator(),
+                  const SizedBox(height: 10),
+                  Text(
+                    t.signingIn,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: c.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ],
             ),

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
 
+import '../../core/util/phone.dart';
 import '../models/models.dart';
 import 'moona_repository.dart';
 
@@ -346,6 +347,38 @@ class FakeMoonaRepository implements MoonaRepository {
         )
         .take(20)
         .toList();
+  }
+
+  @override
+  Future<ContactLookupResult> lookupContacts(List<String> phones) async {
+    await _delay();
+    final seen = <String>{};
+    final entries = <ContactLookupEntry>[];
+    for (final phone in phones) {
+      final String digits;
+      try {
+        digits = normalizePhone(phone).digits;
+      } catch (_) {
+        continue; // Invalid numbers are reported in `invalid` by the live backend.
+      }
+      if (!seen.add(digits)) continue;
+      final user = _users.values.where((u) => u.phone == digits).firstOrNull;
+      entries.add(
+        ContactLookupEntry(
+          phone: '+$digits',
+          phoneDigits: digits,
+          registered: user != null,
+          userId: user?.id,
+          displayName: user?.name,
+          isSelf: user != null && user.id == _currentUserId,
+        ),
+      );
+    }
+    // Registered first, mirroring the live backend ordering.
+    entries.sort(
+      (a, b) => a.registered == b.registered ? 0 : (a.registered ? -1 : 1),
+    );
+    return ContactLookupResult(contacts: entries);
   }
 
   Product _resolveProduct(String name) {

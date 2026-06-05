@@ -79,6 +79,11 @@ abstract class MoonaRepository {
 
   Future<List<Product>> searchProducts(String query);
 
+  /// Resolves which of [phones] belong to registered Moona users. Only phone
+  /// numbers are sent — local contact names stay on device and are rejoined by
+  /// `phoneDigits`.
+  Future<ContactLookupResult> lookupContacts(List<String> phones);
+
   Future<ListItem> addItem(ItemFormData form);
 
   Future<ListItem> updateItem(String itemId, ItemFormData form);

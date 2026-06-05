@@ -60,7 +60,7 @@ class ItemCard extends ConsumerWidget {
                     c.surfaceContainer,
                   )
                 : c.surfaceContainer,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(15),
             border: important
                 ? Border.all(color: c.error.withValues(alpha: 0.3), width: 1.5)
                 : null,
@@ -68,11 +68,21 @@ class ItemCard extends ConsumerWidget {
           child: Stack(
             children: [
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
-                    _Thumbnail(item: item, category: category),
-                    const SizedBox(width: 13),
+                    // Only real uploaded photos earn a thumbnail; the category
+                    // pill already conveys the category, so no placeholder icon.
+                    if (item.imageFileId != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: _ItemImage(item: item, size: 42),
+                      ),
+                      const SizedBox(width: 12),
+                    ],
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,7 +107,7 @@ class ItemCard extends ConsumerWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 17,
+                                    fontSize: 15.5,
                                     fontWeight: FontWeight.w800,
                                     color: c.onSurface,
                                     decoration: scratched
@@ -117,7 +127,7 @@ class ItemCard extends ConsumerWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 13.5,
+                                  fontSize: 12.5,
                                   fontWeight: FontWeight.w700,
                                   color: c.onSurfaceVariant,
                                 ),
@@ -149,38 +159,6 @@ class ItemCard extends ConsumerWidget {
         ),
       ),
     );
-  }
-}
-
-class _Thumbnail extends ConsumerWidget {
-  const _Thumbnail({required this.item, required this.category});
-
-  final ListItem item;
-  final ShopCategory? category;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.c;
-    const size = 50.0;
-    final placeholder = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      color: c.surfaceContainerHighest,
-      child: category == null
-          ? MoonaIcon('list', size: size * 0.42, color: c.onSurfaceVariant)
-          : Text(
-              category!.emoji,
-              style: const TextStyle(fontSize: size * 0.5),
-            ),
-    );
-
-    Widget content = placeholder;
-    if (item.imageFileId != null) {
-      content = _ItemImage(item: item, size: size);
-    }
-
-    return ClipRRect(borderRadius: BorderRadius.circular(13), child: content);
   }
 }
 
