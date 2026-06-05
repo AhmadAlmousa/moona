@@ -2,6 +2,20 @@
 
 Last updated: 2026-06-05
 
+> **Backend/dev note (2026-06-05, contact picker investigation + display-name edit):**
+> I investigated the still-empty device contact picker. The Appwrite
+> `lookupContacts` action is not the blocker; the client was still waiting for
+> lookup completion before showing the local device rows, and strict local
+> normalization could drop phone contacts before they were rendered. I changed
+> the picker to build local device rows immediately, keep contacts with any
+> phone digits visible as "Not on Moona", then enrich/split rows after
+> `lookupContacts` returns. The lookup payload is now deduped and capped to the
+> backend limit, and Android `normalizedNumber` is used when available. I also
+> added a Settings -> Account edit action so users can change `displayName`
+> after first entry; it reuses `updatePreferences(displayName:)`. Verified with
+> `dart analyze` and the Flutter test suite, including focused contact-picker
+> row tests.
+
 > **Backend/dev note (2026-06-05, contact picker bug follow-up):**
 > I redeployed `moonaApi`; active deployment is now
 > `6a22265af33282ae69f2` (runtime `dart-3.1`, status `ready`, scopes now include

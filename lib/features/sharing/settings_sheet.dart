@@ -38,6 +38,7 @@ class _SettingsContent extends ConsumerWidget {
             title: t.account,
             children: [
               MoonaRow(
+                onTap: () => showDisplayNameDialog(context, ref),
                 child: Row(
                   children: [
                     Avatar(name: profile.displayName),
@@ -66,6 +67,8 @@ class _SettingsContent extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    MoonaIcon('edit', size: 20, color: c.onSurfaceVariant),
                   ],
                 ),
               ),

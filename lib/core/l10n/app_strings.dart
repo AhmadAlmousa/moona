@@ -180,6 +180,11 @@ class AppStrings {
       ? 'أدخل اسماً يظهر لمن تشاركهم القائمة بدلاً من رقم جوالك.'
       : 'Enter a name so the people you share with see it instead of your '
             'phone number.';
+  String get changeDisplayName =>
+      isArabic ? 'تغيير الاسم' : 'Change display name';
+  String get changeDisplayNameBody => isArabic
+      ? 'هذا الاسم يظهر لمن تشاركهم قائمتك.'
+      : 'This name is shown to people you share your list with.';
   String get yourName => isArabic ? 'الاسم' : 'Name';
   String get yourNameHint => isArabic ? 'مثال: نور' : 'e.g. Noor';
   String get continueLabel => isArabic ? 'متابعة' : 'Continue';

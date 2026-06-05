@@ -9,10 +9,145 @@ import '../../data/models/models.dart';
 import '../../shared/widgets/widgets.dart';
 
 /// A device contact reduced to what the share picker needs.
-class _ContactEntry {
-  const _ContactEntry(this.name, this.phone);
+@visibleForTesting
+class ContactPickerDeviceContact {
+  const ContactPickerDeviceContact(
+    this.name,
+    this.phone, {
+    this.normalizedPhone,
+  });
+
   final String name;
   final String phone;
+  final String? normalizedPhone;
+}
+
+/// A merged picker row: a device contact annotated with its Moona registration
+/// status. Device contacts are always the source of rows; the `lookupContacts`
+/// response only fills in [registered] / [isSelf] / the profile [displayName].
+@visibleForTesting
+class ContactPickerRow {
+  const ContactPickerRow({
+    required this.name,
+    required this.phone,
+    required this.phoneDigits,
+    required this.registered,
+    required this.isSelf,
+  });
+
+  final String name;
+  final String phone;
+  final String phoneDigits;
+  final bool registered;
+  final bool isSelf;
+}
+
+@visibleForTesting
+List<ContactPickerRow> buildContactPickerRows(
+  Iterable<ContactPickerDeviceContact> contacts,
+  ContactLookupResult result,
+) {
+  final localNames = <String, String>{};
+  final orderedDigits = <String>[];
+  final displayPhone = <String, String>{};
+  for (final entry in contacts) {
+    final digits = _displayDigitsFor(entry);
+    if (digits == null) continue;
+    if (!displayPhone.containsKey(digits)) {
+      orderedDigits.add(digits);
+      displayPhone[digits] = entry.phone;
+    }
+    final name = entry.name.trim();
+    if (name.isNotEmpty) localNames.putIfAbsent(digits, () => name);
+  }
+
+  final lookup = {
+    for (final e in result.contacts)
+      if (e.phoneDigits.isNotEmpty) e.phoneDigits: e,
+  };
+  final rows = <ContactPickerRow>[];
+  final used = <String>{};
+  for (final digits in orderedDigits) {
+    used.add(digits);
+    final e = lookup[digits];
+    rows.add(
+      ContactPickerRow(
+        name: _resolveContactName(localNames[digits], e, displayPhone[digits]!),
+        phone: displayPhone[digits]!,
+        phoneDigits: digits,
+        registered: e?.registered ?? false,
+        isSelf: e?.isSelf ?? false,
+      ),
+    );
+  }
+  // Defensive: surface any registered entries the backend returned that didn't
+  // line up with a device row (e.g. normalization drift), so they aren't lost.
+  for (final e in result.registered) {
+    if (used.add(e.phoneDigits)) {
+      rows.add(
+        ContactPickerRow(
+          name: _resolveContactName(localNames[e.phoneDigits], e, e.phone),
+          phone: e.phone,
+          phoneDigits: e.phoneDigits,
+          registered: true,
+          isSelf: e.isSelf,
+        ),
+      );
+    }
+  }
+  return rows;
+}
+
+@visibleForTesting
+List<String> contactLookupPhones(
+  Iterable<ContactPickerDeviceContact> contacts, {
+  int limit = 250,
+}) {
+  final seen = <String>{};
+  final phones = <String>[];
+  for (final entry in contacts) {
+    final digits = _normalizedDigitsFor(entry);
+    if (digits == null || !seen.add(digits)) continue;
+    phones.add(
+      entry.normalizedPhone?.trim().isNotEmpty == true
+          ? entry.normalizedPhone!.trim()
+          : entry.phone,
+    );
+    if (phones.length >= limit) break;
+  }
+  return phones;
+}
+
+String? _normalizedDigitsFor(ContactPickerDeviceContact entry) {
+  for (final candidate in [entry.normalizedPhone, entry.phone]) {
+    final value = candidate?.trim();
+    if (value == null || value.isEmpty) continue;
+    try {
+      return normalizePhone(value).digits;
+    } catch (_) {
+      // Try the next representation.
+    }
+  }
+  return null;
+}
+
+String? _displayDigitsFor(ContactPickerDeviceContact entry) {
+  final normalized = _normalizedDigitsFor(entry);
+  if (normalized != null) return normalized;
+  for (final candidate in [entry.normalizedPhone, entry.phone]) {
+    final digits = candidate?.replaceAll(RegExp(r'\D'), '');
+    if (digits != null && digits.isNotEmpty) return digits;
+  }
+  return null;
+}
+
+/// Local contact name, falling back to the registered profile name, then the
+/// phone number.
+String _resolveContactName(String? local, ContactLookupEntry? e, String phone) {
+  if (local != null && local.isNotEmpty) return local;
+  final display = e?.displayName;
+  if (display != null && display.isNotEmpty) return display;
+  return phone;
 }
 
 /// Runs the share-via-contacts flow: ensure the user has a real display name →
@@ -30,7 +165,7 @@ Future<void> showContactFlow(BuildContext context, WidgetRef ref) async {
   // permission already exists, otherwise shows the system dialog. On platforms
   // without a contacts backend (web/desktop/tests) the method channel throws and
   // we fall back to manual phone entry.
-  var contacts = <_ContactEntry>[];
+  var contacts = <ContactPickerDeviceContact>[];
   var denied = false;
   try {
     final status = await FlutterContacts.permissions.request(
@@ -45,7 +180,11 @@ Future<void> showContactFlow(BuildContext context, WidgetRef ref) async {
         for (final contact in raw)
           for (final phone in contact.phones)
             if (phone.number.trim().isNotEmpty)
-              _ContactEntry(contact.displayName ?? '', phone.number),
+              ContactPickerDeviceContact(
+                contact.displayName ?? '',
+                phone.number,
+                normalizedPhone: phone.normalizedNumber,
+              ),
       ];
     } else {
       // Denied, restricted, or permanently denied — offer a Settings shortcut.
@@ -60,7 +199,8 @@ Future<void> showContactFlow(BuildContext context, WidgetRef ref) async {
   await showMoonaSheet(
     context: context,
     title: t.selectContact,
-    builder: (_) => _ContactPicker(contacts: contacts, permissionDenied: denied),
+    builder: (_) =>
+        _ContactPicker(contacts: contacts, permissionDenied: denied),
   );
 }
 
@@ -69,14 +209,22 @@ Future<void> showContactFlow(BuildContext context, WidgetRef ref) async {
 /// when the user can proceed.
 Future<bool> _ensureDisplayName(BuildContext context, WidgetRef ref) async {
   if (!ref.read(appControllerProvider.notifier).needsDisplayName) return true;
-  final saved = await _showNameDialog(context, ref);
+  final saved = await showDisplayNameDialog(context, ref, requiredName: true);
   return saved == true;
 }
 
-Future<bool?> _showNameDialog(BuildContext context, WidgetRef ref) {
+Future<bool?> showDisplayNameDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  bool requiredName = false,
+}) {
   final t = ref.read(appControllerProvider).t;
   final controller = ref.read(appControllerProvider.notifier);
-  final field = TextEditingController();
+  final profile = ref.read(appControllerProvider).profile;
+  final current = profile?.displayName.trim() ?? '';
+  final field = TextEditingController(
+    text: requiredName && controller.needsDisplayName ? '' : current,
+  );
 
   return showMoonaDialog<bool>(
     context: context,
@@ -113,7 +261,7 @@ Future<bool?> _showNameDialog(BuildContext context, WidgetRef ref) {
               ),
               const SizedBox(height: 14),
               Text(
-                t.nameYourselfTitle,
+                requiredName ? t.nameYourselfTitle : t.changeDisplayName,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 19,
@@ -123,7 +271,7 @@ Future<bool?> _showNameDialog(BuildContext context, WidgetRef ref) {
               ),
               const SizedBox(height: 8),
               Text(
-                t.nameYourselfBody,
+                requiredName ? t.nameYourselfBody : t.changeDisplayNameBody,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,
@@ -143,7 +291,7 @@ Future<bool?> _showNameDialog(BuildContext context, WidgetRef ref) {
               ),
               const SizedBox(height: 18),
               MoonaButton(
-                label: t.continueLabel,
+                label: requiredName ? t.continueLabel : t.save,
                 full: true,
                 onPressed: canSave ? save : null,
               ),
@@ -165,7 +313,7 @@ Future<bool?> _showNameDialog(BuildContext context, WidgetRef ref) {
 class _ContactPicker extends ConsumerStatefulWidget {
   const _ContactPicker({required this.contacts, this.permissionDenied = false});
 
-  final List<_ContactEntry> contacts;
+  final List<ContactPickerDeviceContact> contacts;
 
   /// True when the OS contacts permission was refused, so the picker can offer
   /// a Settings shortcut alongside manual entry.
@@ -175,29 +323,10 @@ class _ContactPicker extends ConsumerStatefulWidget {
   ConsumerState<_ContactPicker> createState() => _ContactPickerState();
 }
 
-/// A merged picker row: a device contact annotated with its Moona registration
-/// status. Device contacts are always the source of rows; the `lookupContacts`
-/// response only fills in [registered] / [isSelf] / the profile [displayName].
-class _Row {
-  const _Row({
-    required this.name,
-    required this.phone,
-    required this.phoneDigits,
-    required this.registered,
-    required this.isSelf,
-  });
-
-  final String name;
-  final String phone;
-  final String phoneDigits;
-  final bool registered;
-  final bool isSelf;
-}
-
 class _ContactPickerState extends ConsumerState<_ContactPicker> {
   final _query = TextEditingController();
 
-  List<_Row> _rows = const [];
+  List<ContactPickerRow> _rows = const [];
   bool _loading = true;
 
   @override
@@ -213,82 +342,26 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
   }
 
   Future<void> _load() async {
-    // Normalize device contacts up front: keep the local name keyed by digits
-    // (so registered users keep the name the owner saved them under) and send
-    // phone numbers only to the backend. Order is preserved for stable display.
-    final localNames = <String, String>{};
-    final orderedDigits = <String>[];
-    final displayPhone = <String, String>{};
-    final phones = <String>[];
-    for (final entry in widget.contacts) {
-      phones.add(entry.phone);
-      String digits;
-      try {
-        digits = normalizePhone(entry.phone).digits;
-      } catch (_) {
-        continue; // Unparseable locally; skip from the rendered rows.
-      }
-      if (!displayPhone.containsKey(digits)) {
-        orderedDigits.add(digits);
-        displayPhone[digits] = entry.phone;
-      }
-      final name = entry.name.trim();
-      if (name.isNotEmpty) localNames.putIfAbsent(digits, () => name);
-    }
-
-    final result = phones.isEmpty
-        ? const ContactLookupResult()
-        : await ref.read(appControllerProvider.notifier).lookupContacts(phones);
-    if (!mounted) return;
-
-    // Index the lookup response by digits, then enrich every device contact.
-    // Rows come from the device list, so an empty/failed lookup degrades to all
-    // contacts shown as "Not on Moona" rather than an empty picker.
-    final lookup = {for (final e in result.contacts) e.phoneDigits: e};
-    final rows = <_Row>[];
-    final used = <String>{};
-    for (final digits in orderedDigits) {
-      used.add(digits);
-      final e = lookup[digits];
-      rows.add(
-        _Row(
-          name: _resolveName(localNames[digits], e, displayPhone[digits]!),
-          phone: displayPhone[digits]!,
-          phoneDigits: digits,
-          registered: e?.registered ?? false,
-          isSelf: e?.isSelf ?? false,
-        ),
-      );
-    }
-    // Defensive: surface any registered entries the backend returned that didn't
-    // line up with a device row (e.g. normalization drift), so they aren't lost.
-    for (final e in result.registered) {
-      if (used.add(e.phoneDigits)) {
-        rows.add(
-          _Row(
-            name: _resolveName(localNames[e.phoneDigits], e, e.phone),
-            phone: e.phone,
-            phoneDigits: e.phoneDigits,
-            registered: true,
-            isSelf: e.isSelf,
-          ),
-        );
-      }
-    }
-
+    final localRows = buildContactPickerRows(
+      widget.contacts,
+      const ContactLookupResult(),
+    );
     setState(() {
-      _rows = rows;
+      _rows = localRows;
       _loading = false;
     });
-  }
 
-  /// Local contact name, falling back to the registered profile name, then the
-  /// phone number.
-  String _resolveName(String? local, ContactLookupEntry? e, String phone) {
-    if (local != null && local.isNotEmpty) return local;
-    final display = e?.displayName;
-    if (display != null && display.isNotEmpty) return display;
-    return phone;
+    final phones = contactLookupPhones(widget.contacts);
+    if (phones.isEmpty) return;
+
+    final result = await ref
+        .read(appControllerProvider.notifier)
+        .lookupContacts(phones);
+    if (!mounted) return;
+
+    setState(() {
+      _rows = buildContactPickerRows(widget.contacts, result);
+    });
   }
 
   void _share(String phone) {
@@ -296,7 +369,7 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
     ref.read(appControllerProvider.notifier).requestShare(phone);
   }
 
-  bool _matches(_Row r, String query, String digits) {
+  bool _matches(ContactPickerRow r, String query, String digits) {
     if (query.isEmpty) return true;
     return r.name.toLowerCase().contains(query.toLowerCase()) ||
         (digits.isNotEmpty && r.phoneDigits.contains(digits)) ||
