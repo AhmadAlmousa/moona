@@ -2,13 +2,28 @@
 
 Last updated: 2026-06-05
 
+> **Backend/dev note (2026-06-05, contact picker bug follow-up):**
+> I redeployed `moonaApi`; active deployment is now
+> `6a22265af33282ae69f2` (runtime `dart-3.1`, status `ready`, scopes now include
+> `tokens.write`). The live dispatcher now includes `lookupContacts` -- smoke
+> test with no user auth returns `unauthorized` instead of "Unknown Moona
+> function", which proves the action is live. Remaining contact-picker bugs are
+> frontend-native integration issues: remove the custom in-app contacts
+> permission dialog and request the OS permission directly via
+> `FlutterContacts.permissions.request(PermissionType.read)` before
+> `getAll(...)`; add Android `READ_CONTACTS` and iOS
+> `NSContactsUsageDescription`; and render the local device contacts as a
+> fallback even if `lookupContacts` returns empty/errors, so a backend/network
+> miss does not collapse the picker to an empty list. The lookup response should
+> enrich/split the rows, not be the only source of rows.
+
 > **Backend/dev note (2026-06-05, contact discovery + sharing UX handoff):**
 > I added a new backend action, `lookupContacts`, for the contact selector. It
 > normalizes phone numbers with the same rules as auth/share, deduplicates by
 > `phoneDigits`, checks existing profiles in a batched query, and returns
 > registered contacts first plus separate `registered` / `unregistered` lists.
-> This is **not live yet** until `moonaApi` is redeployed, but it needs no
-> schema change. Frontend owner: please wire the contact picker to send phone
+> This is now live via deployment `6a22265af33282ae69f2` and needs no schema
+> change. Frontend owner: please wire the contact picker to send phone
 > numbers only (no local contact names), map results back by `phoneDigits`,
 > split the UI into Registered and Not registered sections, and place registered
 > users at the top. Also pick up these user-requested UI changes: keep a visible
@@ -39,14 +54,14 @@ Last updated: 2026-06-05
 > is now intended to sit directly below the Important toggle and default to
 > `grocery` for new items.
 
-> **Backend dev note (2026-06-04, local changes pending deploy):**
+> **Backend dev note (2026-06-04, local changes now deployed):**
 > I picked up the remaining Q3/Q4/Q8 items after reviewing the frontend dev's
 > deploy handoff. Backend code now enriches bootstrap/sharing responses with a
 > `profiles` lookup plus `counterpartyName`/`counterpartyPhone`, adds
 > `trashedByDisplayName` to returned trash rows, and adds
-> `createImageViewToken` for mobile-safe private image views. This is **not live
-> yet** until `moonaApi` is redeployed with the updated Dart bundle and the added
-> `tokens.write` function scope.
+> `createImageViewToken` for mobile-safe private image views. This is now live
+> via deployment `6a22265af33282ae69f2`, including the added `tokens.write`
+> function scope.
 
 > **Deploy note (2026-06-03, pushed by the frontend dev acting as backend dev):**
 > `moonaApi` is now running the **Dart** build (`runtime: dart-3.1`, active

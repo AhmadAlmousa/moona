@@ -1,5 +1,34 @@
 # Moona Backend — Deploy Log
 
+## 2026-06-05 — Contact discovery / token-scope redeploy
+
+Redeployed `moonaApi` with the current Dart backend code so the
+`lookupContacts` action is live for the contact selector. I used the same
+runtime-only trimmed bundle approach documented below because Appwrite Cloud's
+`dart-3.1` runtime still resolves with Dart SDK 3.1.5.
+
+Validation before deploy:
+- `dart analyze` via the Dart MCP: no errors.
+- Backend tests: 19/19 passed, including the `lookupContacts` operation tests.
+
+Deployment result:
+- Active deployment: `6a22265af33282ae69f2`
+- Created: `2026-06-05T01:28:59.111+00:00`
+- Runtime: `dart-3.1`
+- Entrypoint: `lib/main.dart`
+- Status: `ready`
+- Build size: ~2.76 MB
+- Function scopes now include `tokens.write` in addition to the existing
+  database/table/user/storage scopes.
+
+Smoke verification:
+- A no-auth execution with body
+  `{"action":"lookupContacts","phones":["0501112233"]}` completed against
+  deployment `6a22265af33282ae69f2` and returned the expected
+  `{"ok":false,"error":{"code":"unauthorized",...}}`.
+- This proves the live dispatcher recognizes `lookupContacts`; the previous
+  symptom would have been `Unknown Moona function: lookupContacts`.
+
 ## 2026-06-03 — Node→Dart function deploy (done by the frontend dev, acting backend dev)
 
 **Context / authorization.** The Node→Dart SDK migration existed only in the repo
