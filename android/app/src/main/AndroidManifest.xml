@@ -4,6 +4,10 @@
          this manifest, so without it every network call (including sign-in)
          fails silently with a generic error. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Required so the share-with-a-contact picker can read device contacts and
+         match them against registered Moona users via `lookupContacts`. The OS
+         permission is requested at runtime, just before the picker opens. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <application
         android:label="moona"
         android:name="${applicationName}"

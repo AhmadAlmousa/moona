@@ -66,14 +66,6 @@ class AppStrings {
   // contacts
   String get shareViaContacts =>
       isArabic ? 'مشاركة مع جهة اتصال' : 'Share with a contact';
-  String get contactsPermTitle =>
-      isArabic ? 'السماح بالوصول لجهات الاتصال' : 'Allow access to contacts';
-  String get contactsPermBody => isArabic
-      ? 'يحتاج مونة للوصول إلى جهات اتصالك حتى تتمكّن من اختيار من تشارك معه القائمة.'
-      : 'Moona needs access to your contacts so you can choose who to share '
-            'the list with.';
-  String get allow => isArabic ? 'السماح' : 'Allow';
-  String get dontAllow => isArabic ? 'ليس الآن' : 'Not now';
   String get selectContact => isArabic ? 'اختر جهة اتصال' : 'Select a contact';
   String get searchContacts =>
       isArabic ? 'بحث في جهات الاتصال' : 'Search contacts';
@@ -83,6 +75,12 @@ class AppStrings {
   String get invited => isArabic ? 'تم إرسال الدعوة' : 'Invite sent';
   String get enterPhoneManually =>
       isArabic ? 'أو أدخل رقماً يدوياً' : 'Or enter a number manually';
+  String get contactsDeniedHint => isArabic
+      ? 'الوصول لجهات الاتصال مرفوض. فعّله من الإعدادات أو أدخل رقماً يدوياً.'
+      : 'Contacts access is off. Turn it on in Settings, or enter a number '
+            'manually.';
+  String get openContactsSettings =>
+      isArabic ? 'فتح الإعدادات' : 'Open settings';
 
   String get relNow => isArabic ? 'الآن' : 'just now';
   String get relMin => isArabic ? 'د' : 'm';

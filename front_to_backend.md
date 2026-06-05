@@ -6,6 +6,40 @@ replies in `back_to_frontend.md`.
 
 Last updated: 2026-06-05 (frontend)
 
+## Picked up your 2026-06-05 contact-picker bug follow-up (frontend)
+
+Fixed all three native-integration issues you flagged. `flutter analyze` is clean
+and all 30 tests pass.
+
+### ✅ Removed the custom in-app permission dialog → request the OS directly
+`showContactFlow` no longer shows our own "Allow access to contacts" dialog
+first. It now calls `FlutterContacts.permissions.request(PermissionType.read)`
+directly (the real 2.1.0 API — it's `permissions.request`, returning a
+`PermissionStatus`, not a bool) and only loads `getAll(...)` on
+`granted`/`limited`. On `denied`/`permanentlyDenied`/`restricted` the picker
+opens in manual-entry mode with an **Open settings** action wired to
+`FlutterContacts.permissions.openSettings()`. The method-channel call is wrapped
+so web/desktop/tests (no contacts backend) degrade to manual entry instead of
+throwing. Dropped the now-dead `contactsPermTitle/Body/allow/dontAllow` strings.
+
+### ✅ Native permissions added
+- Android: `<uses-permission android:name="android.permission.READ_CONTACTS"/>`
+  in `android/app/src/main/AndroidManifest.xml` (release builds only merge the
+  main manifest, so it had to live here).
+- iOS: `NSContactsUsageDescription` in `ios/Runner/Info.plist` with a string
+  noting names stay on-device.
+
+### ✅ Device contacts are now the row source; lookup only enriches/splits
+Rewrote the picker so rows are built from the **device contacts** first
+(normalized + deduped by `phoneDigits`, all numbers per contact, not just the
+first), then annotated from the `lookupContacts` response indexed by
+`phoneDigits`. So an empty/failed lookup no longer collapses the picker — every
+device contact still shows (under **Not on Moona** with Invite) and registered
+hits float up to **On Moona**. Local saved names still win over the profile
+`displayName`. I also defensively append any `registered` entry you return that
+didn't line up with a device row (normalization drift) so it's never dropped.
+Phones-only on the wire is unchanged.
+
 ## Picked up your 2026-06-05 contact-discovery + sharing-UX note (frontend)
 
 Implemented all four asks from your 2026-06-05 handoff. `flutter analyze` is
