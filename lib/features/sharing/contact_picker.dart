@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:flutter_native_contact_picker/flutter_native_contact_picker.dart'
+    as native_picker;
+import 'package:flutter_native_contact_picker/model/contact.dart'
+    as native_picker;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
@@ -150,6 +155,96 @@ String _resolveContactName(String? local, ContactLookupEntry? e, String phone) {
   return phone;
 }
 
+/// Why the device-contact load ended the way it did, so the picker can show a
+/// meaningful empty state (and we can tell apart "denied" / "none" / "failed"
+/// instead of one mystery blank list).
+@visibleForTesting
+enum ContactLoadStatus {
+  /// Contacts were read (the list may still be empty if the device has none).
+  ok,
+
+  /// The OS contacts permission was refused.
+  denied,
+
+  /// Reading contacts threw — e.g. no contacts backend (web/desktop/tests) or a
+  /// platform exception. [ContactLoadResult.error] carries the detail.
+  error,
+}
+
+/// Outcome of loading device contacts for the picker.
+@visibleForTesting
+class ContactLoadResult {
+  const ContactLoadResult(
+    this.status,
+    this.contacts, {
+    this.error,
+    this.rawCount = 0,
+  });
+
+  final ContactLoadStatus status;
+  final List<ContactPickerDeviceContact> contacts;
+
+  /// The raw exception text when [status] is [ContactLoadStatus.error]; surfaced
+  /// in the picker so failures are observable instead of swallowed.
+  final String? error;
+
+  /// Total contacts the OS returned (before flattening to phone numbers). Lets
+  /// the empty state tell "device has no contacts" apart from "contacts have no
+  /// readable phone number".
+  final int rawCount;
+}
+
+/// Reads device contacts, capturing *why* it ended up with the contacts it did.
+/// Permission is driven by `permission_handler` (`request()` shows the system
+/// dialog, or returns the existing grant silently); contacts are read with
+/// flutter_contacts 1.x's `getContacts`, with `includeNonVisibleOnAndroid`
+/// enabled so contacts outside a "visible group" (common for synced/SIM contacts
+/// on Samsung/One UI) aren't silently filtered out — that filter, not any device
+/// restriction, was the cause of the earlier empty list, and 2.x can't disable
+/// it. On platforms without a contacts backend (web/desktop/tests) the method
+/// channel throws — recorded as [ContactLoadStatus.error] rather than swallowed.
+Future<ContactLoadResult> loadDeviceContacts() async {
+  // Build marker so the log unambiguously identifies the 1.x getContacts path.
+  debugPrint('Moona[contacts-1x]: loadDeviceContacts start');
+  try {
+    final status = await Permission.contacts.request();
+    if (!status.isGranted && !status.isLimited) {
+      debugPrint('Moona[contacts-1x]: permission not granted ($status)');
+      return const ContactLoadResult(ContactLoadStatus.denied, []);
+    }
+    // By default flutter_contacts adds `IN_VISIBLE_GROUP = 1` to the query, which
+    // silently drops every contact not in a "visible group". On Samsung/One UI
+    // synced/SIM contacts are routinely flagged out of any visible group, so the
+    // query returned an empty cursor (no error) even with permission granted —
+    // the real cause of the long "empty picker" saga, NOT a device restriction.
+    // Including non-visible contacts mirrors what the system Contacts app shows.
+    FlutterContacts.config.includeNonVisibleOnAndroid = true;
+    final raw = await FlutterContacts.getContacts(withProperties: true);
+    final contacts = [
+      for (final contact in raw)
+        for (final phone in contact.phones)
+          if (phone.number.trim().isNotEmpty)
+            ContactPickerDeviceContact(
+              contact.displayName,
+              phone.number,
+              normalizedPhone: phone.normalizedNumber,
+            ),
+    ];
+    debugPrint(
+      'Moona[contacts-1x]: getContacts -> ${raw.length} contacts, '
+      '${contacts.length} phones (perm=$status).',
+    );
+    return ContactLoadResult(
+      ContactLoadStatus.ok,
+      contacts,
+      rawCount: raw.length,
+    );
+  } catch (e, st) {
+    debugPrint('Moona[contacts-1x]: FAILED: $e\n$st');
+    return ContactLoadResult(ContactLoadStatus.error, const [], error: '$e');
+  }
+}
+
 /// Runs the share-via-contacts flow: ensure the user has a real display name →
 /// OS contacts permission (requested directly, no custom pre-dialog) → contact
 /// picker. Device contacts are the source of rows; `lookupContacts` only
@@ -161,46 +256,14 @@ Future<void> showContactFlow(BuildContext context, WidgetRef ref) async {
   final named = await _ensureDisplayName(context, ref);
   if (named != true || !context.mounted) return;
 
-  // Ask the OS directly. flutter_contacts silently returns granted/limited if
-  // permission already exists, otherwise shows the system dialog. On platforms
-  // without a contacts backend (web/desktop/tests) the method channel throws and
-  // we fall back to manual phone entry.
-  var contacts = <ContactPickerDeviceContact>[];
-  var denied = false;
-  try {
-    final status = await FlutterContacts.permissions.request(
-      PermissionType.read,
-    );
-    if (status == PermissionStatus.granted ||
-        status == PermissionStatus.limited) {
-      final raw = await FlutterContacts.getAll(
-        properties: {ContactProperty.phone},
-      );
-      contacts = [
-        for (final contact in raw)
-          for (final phone in contact.phones)
-            if (phone.number.trim().isNotEmpty)
-              ContactPickerDeviceContact(
-                contact.displayName ?? '',
-                phone.number,
-                normalizedPhone: phone.normalizedNumber,
-              ),
-      ];
-    } else {
-      // Denied, restricted, or permanently denied — offer a Settings shortcut.
-      denied = true;
-    }
-  } catch (_) {
-    // Contacts unavailable on this platform — manual entry still works.
-  }
+  final loaded = await loadDeviceContacts();
 
   if (!context.mounted) return;
   final t = ref.read(appControllerProvider).t;
   await showMoonaSheet(
     context: context,
     title: t.selectContact,
-    builder: (_) =>
-        _ContactPicker(contacts: contacts, permissionDenied: denied),
+    builder: (_) => _ContactPicker(loaded: loaded),
   );
 }
 
@@ -311,13 +374,9 @@ Future<bool?> showDisplayNameDialog(
 }
 
 class _ContactPicker extends ConsumerStatefulWidget {
-  const _ContactPicker({required this.contacts, this.permissionDenied = false});
+  const _ContactPicker({required this.loaded});
 
-  final List<ContactPickerDeviceContact> contacts;
-
-  /// True when the OS contacts permission was refused, so the picker can offer
-  /// a Settings shortcut alongside manual entry.
-  final bool permissionDenied;
+  final ContactLoadResult loaded;
 
   @override
   ConsumerState<_ContactPicker> createState() => _ContactPickerState();
@@ -342,8 +401,9 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
   }
 
   Future<void> _load() async {
+    final contacts = widget.loaded.contacts;
     final localRows = buildContactPickerRows(
-      widget.contacts,
+      contacts,
       const ContactLookupResult(),
     );
     setState(() {
@@ -351,7 +411,7 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
       _loading = false;
     });
 
-    final phones = contactLookupPhones(widget.contacts);
+    final phones = contactLookupPhones(contacts);
     if (phones.isEmpty) return;
 
     final result = await ref
@@ -360,13 +420,54 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
     if (!mounted) return;
 
     setState(() {
-      _rows = buildContactPickerRows(widget.contacts, result);
+      _rows = buildContactPickerRows(contacts, result);
     });
   }
 
   void _share(String phone) {
     Navigator.of(context).pop();
     ref.read(appControllerProvider.notifier).requestShare(phone);
+  }
+
+  /// Fallback path: launch the OS contact picker (`ACTION_PICK`). The system
+  /// contacts app does the reading and hands back only the chosen contact via a
+  /// temporary URI grant, so this works even when the device blocks the app's
+  /// own contacts query. The picked number is looked up + added as a row so it
+  /// lands in On Moona / Not on Moona just like a browsed contact.
+  Future<void> _pickFromSystem() async {
+    native_picker.Contact? picked;
+    try {
+      picked = await native_picker.FlutterNativeContactPicker()
+          .selectPhoneNumber();
+    } catch (e) {
+      debugPrint('Moona[contacts-1x]: native pick failed: $e');
+    }
+    if (!mounted || picked == null) return;
+    final number = picked.selectedPhoneNumber?.trim().isNotEmpty == true
+        ? picked.selectedPhoneNumber!
+        : (picked.phoneNumbers?.isNotEmpty == true
+              ? picked.phoneNumbers!.first
+              : null);
+    if (number == null || number.trim().isEmpty) return;
+
+    final contact = ContactPickerDeviceContact(picked.fullName ?? '', number);
+    final phones = contactLookupPhones([contact]);
+    var result = const ContactLookupResult();
+    if (phones.isNotEmpty) {
+      result = await ref
+          .read(appControllerProvider.notifier)
+          .lookupContacts(phones);
+    }
+    if (!mounted) return;
+
+    final newRows = buildContactPickerRows([contact], result);
+    setState(() {
+      final existing = _rows.map((r) => r.phoneDigits).toSet();
+      _rows = [
+        ...newRows.where((r) => !existing.contains(r.phoneDigits)),
+        ..._rows,
+      ];
+    });
   }
 
   bool _matches(ContactPickerRow r, String query, String digits) {
@@ -408,6 +509,17 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
           onChanged: (_) => setState(() {}),
           trailing: MoonaIcon('search', size: 20, color: c.onSurfaceVariant),
         ),
+        const SizedBox(height: 10),
+        // Always available: opens the OS contact picker. It's the only path
+        // that works when the device blocks the app's own contacts read, and a
+        // convenient native shortcut otherwise.
+        MoonaButton(
+          label: t.pickFromContacts,
+          icon: 'person',
+          variant: MoonaButtonVariant.tonal,
+          full: true,
+          onPressed: _pickFromSystem,
+        ),
         if (showManual) ...[
           const SizedBox(height: 10),
           MoonaButton(
@@ -425,17 +537,31 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
           )
         else if (registered.isEmpty && unregistered.isEmpty) ...[
           _EmptyHint(
-            text: widget.permissionDenied
-                ? t.contactsDeniedHint
+            // When there are no rows at all, say why; if rows exist but the
+            // search filtered them out, fall back to the manual-entry hint.
+            text: _rows.isEmpty
+                ? switch (widget.loaded.status) {
+                    ContactLoadStatus.denied => t.contactsDeniedHint,
+                    ContactLoadStatus.error => t.contactsLoadError,
+                    ContactLoadStatus.ok => widget.loaded.rawCount == 0
+                        ? t.noContactsFound
+                        : t.contactsNoPhones(widget.loaded.rawCount),
+                  }
                 : t.enterPhoneManually,
           ),
-          if (widget.permissionDenied) ...[
+          // Surface the raw failure so an empty list is never a silent mystery.
+          if (widget.loaded.status == ContactLoadStatus.error &&
+              widget.loaded.error != null) ...[
+            const SizedBox(height: 6),
+            _EmptyHint(text: widget.loaded.error!),
+          ],
+          if (widget.loaded.status == ContactLoadStatus.denied) ...[
             const SizedBox(height: 8),
             MoonaButton(
               label: t.openContactsSettings,
               variant: MoonaButtonVariant.text,
               full: true,
-              onPressed: () => FlutterContacts.permissions.openSettings(),
+              onPressed: openAppSettings,
             ),
           ],
         ] else ...[

@@ -4,7 +4,33 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-05 (frontend)
+Last updated: 2026-06-07 (frontend)
+
+## Root-caused the empty device contact list — it was never a device restriction (frontend)
+
+Closing the loop on the long "empty contact picker" saga. The earlier theory
+(a Samsung/One UI sideload restriction blocking our contacts read) was **wrong**.
+A reference plugin (`references/ContactX`) read the full contact list on the same
+device, which ruled the restriction theory out.
+
+Real cause: **`flutter_contacts` adds `IN_VISIBLE_GROUP = 1` to its Android
+query**, which drops every contact that isn't in a "visible group". Synced/SIM
+contacts on Samsung/One UI are routinely flagged outside any visible group, so
+the query returned an **empty cursor with no error** even with `READ_CONTACTS`
+granted. `adb content query` and ContactX both see everything because they hit
+`Contacts.CONTENT_URI` with no visible-group filter.
+
+Fix (frontend-only, no backend impact): set
+`FlutterContacts.config.includeNonVisibleOnAndroid = true` before
+`getContacts(...)` in `loadDeviceContacts()`. `flutter analyze` is clean and all
+35 tests pass.
+
+Note on versions: we **stay pinned to `flutter_contacts` 1.x**. 1.x exposes the
+`includeNonVisibleOnAndroid` flag; **2.x (incl. latest 2.2.1) removed it and
+hardcodes the filter with no Dart opt-out**, so the empty-list bug is unfixable
+from Dart on 2.x. Bumping to 2.x would require replacing the read path with a
+native `Contacts.CONTENT_URI` query. Flagging so this pin isn't "upgraded" later
+without that work. Nothing needed from the backend.
 
 ## Reviewed your 2026-06-05 contact-picker refactor + display-name edit (frontend)
 

@@ -81,6 +81,18 @@ class AppStrings {
             'manually.';
   String get openContactsSettings =>
       isArabic ? 'فتح الإعدادات' : 'Open settings';
+  String get pickFromContacts =>
+      isArabic ? 'اختر من جهات الاتصال' : 'Pick from contacts';
+  String get noContactsFound => isArabic
+      ? 'لم نجد أي جهات اتصال على هذا الجهاز. أدخل رقماً يدوياً.'
+      : 'No contacts were found on this device. Enter a number manually.';
+  String contactsNoPhones(int count) => isArabic
+      ? 'وجدنا $count جهة اتصال لكن بلا أرقام هاتف يمكن قراءتها. أدخل رقماً يدوياً.'
+      : 'Found $count contacts, but none had a readable phone number. Enter a '
+            'number manually.';
+  String get contactsLoadError => isArabic
+      ? 'تعذّر قراءة جهات الاتصال. أدخل رقماً يدوياً.'
+      : "Couldn't read your contacts. Enter a number manually.";
 
   String get relNow => isArabic ? 'الآن' : 'just now';
   String get relMin => isArabic ? 'د' : 'm';

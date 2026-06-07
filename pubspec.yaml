@@ -40,7 +40,22 @@ dependencies:
   appwrite: ^25.0.0
   flutter_svg: ^2.3.0
   image_picker: ^1.2.2
-  flutter_contacts: ^2.1.0
+  # Pinned to the 1.x line on purpose. flutter_contacts hardcodes
+  # `IN_VISIBLE_GROUP = 1` in its query, which drops contacts not in a "visible
+  # group" — common for synced/SIM contacts on Samsung/One UI, so getAll()
+  # returns 0 there even with permission granted. 1.x exposes a config flag
+  # (`includeNonVisibleOnAndroid`, set true in contact_picker.dart) to disable
+  # that filter; 2.x removed the flag and bakes the filter in with no opt-out, so
+  # the empty-list bug is unfixable from Dart on 2.x. Do NOT bump to 2.x without
+  # replacing the read path (e.g. a native Contacts.CONTENT_URI query).
+  # permission_handler drives the runtime permission + "Open settings" shortcut
+  # (1.x has no openSettings()).
+  flutter_contacts: ^1.1.9
+  permission_handler: ^11.3.1
+  # System contact picker (ACTION_PICK) kept as a convenience/fallback: it reads
+  # only the chosen contact via a temporary URI grant, so it's a one-tap path and
+  # a safety net if the in-app list ever comes up short on a given device.
+  flutter_native_contact_picker: ^0.0.12
   # Bundles country flag PNG assets (rendered in the phone country picker);
   # reliable on Android where flag emoji don't render.
   country_code_picker: ^3.4.1
