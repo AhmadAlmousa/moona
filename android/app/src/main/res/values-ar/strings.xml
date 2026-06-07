@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">قائمة مونة</string>
+    <string name="widget_description">قائمة تسوّقك بلمحة — اشطب الأصناف أو أضف صنفاً جديداً.</string>
+    <string name="widget_open_hint">افتح مونة لتحميل قائمتك.</string>
+</resources>

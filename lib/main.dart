@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:home_widget/home_widget.dart';
 
 import 'app/app_state.dart';
 import 'app/providers.dart';
@@ -8,10 +12,15 @@ import 'core/theme/moona_colors.dart';
 import 'core/theme/moona_theme.dart';
 import 'data/models/models.dart';
 import 'features/auth/login_screen.dart';
+import 'features/list/item_form.dart';
 import 'features/list/main_screen.dart';
 import 'features/sharing/incoming_share.dart';
+import 'features/widget/widget_bridge.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Background isolate entry for taps on the home-screen widget.
+  HomeWidget.registerInteractivityCallback(moonaWidgetInteraction);
   runApp(const ProviderScope(child: MoonaApp()));
 }
 
@@ -51,6 +60,50 @@ class _Root extends ConsumerStatefulWidget {
 
 class _RootState extends ConsumerState<_Root> {
   final Set<String> _promptedShares = {};
+
+  /// Live widget-tap subscription, plus a deferred "open the add sheet" request
+  /// from a `moona://add` widget launch that arrives before we reach the main
+  /// screen (cold start still on login/bootstrap).
+  StreamSubscription<Uri?>? _widgetClicks;
+  bool _pendingWidgetAdd = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!kIsWeb) {
+      HomeWidget.initiallyLaunchedFromHomeWidget()
+          .then(_onWidgetUri)
+          .catchError((_) {});
+      _widgetClicks = HomeWidget.widgetClicked.listen(
+        _onWidgetUri,
+        onError: (_) {},
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _widgetClicks?.cancel();
+    super.dispose();
+  }
+
+  /// A widget launch URI — only `moona://add` is handled here (check-off/undo
+  /// run in the background isolate, not via app launch).
+  void _onWidgetUri(Uri? uri) {
+    if (uri == null || uri.host != MoonaWidget.hostAdd) return;
+    _pendingWidgetAdd = true;
+    _maybeOpenWidgetAdd();
+  }
+
+  /// Opens the in-app add sheet once we're signed in and on the main screen.
+  void _maybeOpenWidgetAdd() {
+    if (!_pendingWidgetAdd || !mounted) return;
+    if (ref.read(appControllerProvider).screen != AppScreen.main) return;
+    _pendingWidgetAdd = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) showItemForm(context, ref);
+    });
+  }
 
   void _showToast(String message) {
     final c = context.c;
@@ -99,8 +152,14 @@ class _RootState extends ConsumerState<_Root> {
       ),
       (_, next) => _maybePromptShare(next),
     );
+    // Mirror the signed-in list into the home-screen widget on every change,
+    // and flush any pending widget-launched "add" once we reach the main screen.
+    ref.listen(appControllerProvider, (_, next) {
+      if (next.screen == AppScreen.main) pushWidgetSnapshot(next);
+      _maybeOpenWidgetAdd();
+    });
 
-    final screen = ref.watch(appControllerProvider.select((s) => s.screen));
+    final AppScreen screen = ref.watch(appControllerProvider.select((s) => s.screen));
     return switch (screen) {
       AppScreen.login => const LoginScreen(),
       AppScreen.main => const MainScreen(),

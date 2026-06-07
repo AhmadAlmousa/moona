@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">Moona list</string>
+    <string name="widget_description">Your shopping list at a glance — check items off or add a new one.</string>
+    <string name="widget_open_hint">Open Moona to load your list.</string>
+</resources>

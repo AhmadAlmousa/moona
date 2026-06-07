@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#1F8A5B</color>
+
+    <!-- Moona design tokens for the home-screen widget (light). Mirrors
+         lib/core/theme/moona_colors.dart. The widget follows the system
+         light/dark setting via values-night. -->
+    <color name="moona_bg">#FFFFFBF6</color>                <!-- surface -->
+    <color name="moona_card">#FFF4EFE7</color>              <!-- surfaceContainer -->
+    <color name="moona_on_surface">#FF1D1B18</color>
+    <color name="moona_on_surface_variant">#FF524D45</color>
+    <color name="moona_primary">#FF1F8A5B</color>
+    <color name="moona_on_primary">#FFFFFFFF</color>
+    <color name="moona_error">#FFBA1A1A</color>
+    <color name="moona_chip">#FFE8E2D8</color>              <!-- surfaceContainerHighest -->
 </resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Moona widget tokens (dark) — mirrors MoonaColors.dark. -->
+<resources>
+    <color name="moona_bg">#FF14130F</color>                <!-- surface -->
+    <color name="moona_card">#FF211F1A</color>              <!-- surfaceContainer -->
+    <color name="moona_on_surface">#FFECE7DD</color>
+    <color name="moona_on_surface_variant">#FFCFC8BC</color>
+    <color name="moona_primary">#FF6EDDA1</color>
+    <color name="moona_on_primary">#FF003820</color>
+    <color name="moona_error">#FFFFB4AB</color>
+    <color name="moona_chip">#FF36332E</color>              <!-- surfaceContainerHighest -->
+</resources>

@@ -34,6 +34,35 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- Home-screen widget: renders the shopping list (MoonaWidgetService
+             supplies the rows). Refreshed on demand from Flutter via home_widget. -->
+        <receiver
+            android:name=".MoonaWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/moona_widget_info" />
+        </receiver>
+        <service
+            android:name=".MoonaWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS_SERVICE"
+            android:exported="false" />
+
+        <!-- Routes widget taps (check-off / undo / detail toggle) to the
+             background Dart isolate (home_widget WorkManager worker). -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

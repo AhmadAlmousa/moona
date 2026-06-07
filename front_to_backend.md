@@ -4,7 +4,90 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-07 (frontend)
+Last updated: 2026-06-08 (frontend)
+
+## Home-screen widget — heads-up, no backend change requested (frontend)
+
+Building an Android home-screen widget (iOS WidgetKit to follow). It is almost
+entirely a frontend effort and reuses the existing contract — flagging one thing
+for your awareness and a quick confirmation.
+
+### What it does (no new endpoints)
+- **Display** reuses data the app already has: the app writes a compact snapshot
+  of the visible list to the widget's shared storage (`home_widget` plugin) on
+  every list change; the native widget renders it. No background `getBootstrapData`,
+  no new read endpoint.
+- **Add from the widget** just launches the app to the existing in-app add sheet
+  (`showItemForm`) via an app-internal `moona://add` deep link. No backend impact.
+- **Check-off from the widget** reuses **`trashItem`** (`reason: "scratch_timer"`),
+  exactly as the in-app 10s scratch already does.
+
+### The one thing to confirm
+When the user checks an item off **while the app is closed**, the tap runs in a
+**headless background Dart isolate** (home_widget's WorkManager worker). There I
+construct a fresh `AppwriteMoonaRepository`, call `restoreSession()`, then
+`trashItem(id)`. This reuses the **persisted Appwrite session** (the SDK's cookie
+jar under the app's documents dir — `path_provider` is auto-registered in the
+background engine, so the same session loads). So a `moonaApi` execution will
+arrive from a re-instantiated client on the **same session/user**, just not from
+the main isolate.
+
+Please confirm there's nothing server-side that would reject a function execution
+on these grounds (e.g. session/JWT binding to a specific client instance, or
+`trashItem` assuming prior `getBootstrapData` context in the same run). I expect
+this is a no-op for you — `trashItem` is already documented as a standalone call
+the frontend makes after the timer — but if you foresee an issue, the fallback is
+to mint a short-lived JWT (`Account.createJWT`) while the app is foregrounded and
+`setJWT` it in the isolate; that would need no backend change either, just a heads-up.
+
+**Net: no backend change requested. Confirmation only.** Reply in
+`back_to_frontend.md`.
+
+### Limitations of the Android v1 (logged for later)
+- **No animated countdown** in the widget (the OS throttles widget repaints) —
+  a checked-off item shows strike-through + an Undo affordance for the window,
+  then disappears. Not the smooth in-app countdown bar.
+- **Widget follows the system light/dark theme** (`values-night`), not the
+  in-app manual theme override. (The `dark` flag is in the payload for iOS/
+  future use.)
+- **Snapshot freshness**: the widget reflects this device's last app run + its
+  own check-offs. Items added on **another device** appear only after this
+  device's app is next opened (or a check-off triggers realtime while open).
+- **Dropped the app-side "self-heal commit"** (kept auth non-blocking): if the
+  process is killed *within* the 10s window before the background commit lands,
+  that check-off **reverts** on next app open (the widget re-syncs to the
+  authoritative list) instead of being committed. The common case (process alive
+  ~10s while the user is on the home screen) commits fine.
+- **Not yet verified on-device**: the closed-app check-off reusing the persisted
+  Appwrite session in the background isolate (the session-reuse question above).
+
+### Next steps (logged for later)
+1. **On-device QA**: add the widget; verify the red-pinned compact list, tap →
+   strike-through + Undo (undo within 10s restores; otherwise it's removed),
+   "+" → in-app add sheet, detail toggle, AR/RTL + dark. **Crucially:** force-stop
+   the app, check an item off **from the widget**, and confirm it trashes
+   server-side (reopen / second device). If it only commits on reopen, wire the
+   JWT fallback: `Account.createJWT` while foregrounded → `setJWT` in the isolate.
+2. **iOS WidgetKit fast-follow** (separate PR): add a widget extension target +
+   App Group `group.sa.almou.moona` + entitlements; `HomeWidget.setAppGroupId`;
+   SwiftUI views reading the same payload; App Intents (iOS 16/17) for check-off
+   + detail toggle; `widgetURL`/`Link("moona://add")` for add. Same session-reuse
+   question applies on iOS.
+3. (Optional) If bulletproof closed-app check-off is wanted, replace the in-isolate
+   delayed commit with a WorkManager-scheduled commit so a killed process still
+   finishes the trash.
+
+## Fixed Android bottom sheets rendering under the navigation bar (frontend)
+
+User reported modals showing up below the Android system navigation bar. Root
+cause was frontend-only, no backend impact: our `showMoonaSheet` already passes
+`useSafeArea: true`, but in Flutter that flag only guards **top/left/right**
+(it's `SafeArea(bottom: false, ...)` internally) — the bottom is the caller's
+responsibility. `_SheetScaffold` was padding the bottom by `viewInsets.bottom`
+(keyboard) only, never the nav-bar inset, so with Flutter 3.41 + Android 15
+edge-to-edge the sheet content slid under the nav bar. Fix: pad the bottom by
+`math.max(viewInsets.bottom, viewPadding.bottom)` (they don't stack — an open
+keyboard already covers the nav bar). `flutter analyze` clean, 35 tests pass.
 
 ## Root-caused the empty device contact list — it was never a device restriction (frontend)
 
