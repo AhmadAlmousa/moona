@@ -167,26 +167,17 @@ enum ContactLoadStatus {
   denied,
 
   /// Reading contacts threw — e.g. no contacts backend (web/desktop/tests) or a
-  /// platform exception. [ContactLoadResult.error] carries the detail.
+  /// platform exception (logged via debugPrint).
   error,
 }
 
 /// Outcome of loading device contacts for the picker.
 @visibleForTesting
 class ContactLoadResult {
-  const ContactLoadResult(
-    this.status,
-    this.contacts, {
-    this.error,
-    this.rawCount = 0,
-  });
+  const ContactLoadResult(this.status, this.contacts, {this.rawCount = 0});
 
   final ContactLoadStatus status;
   final List<ContactPickerDeviceContact> contacts;
-
-  /// The raw exception text when [status] is [ContactLoadStatus.error]; surfaced
-  /// in the picker so failures are observable instead of swallowed.
-  final String? error;
 
   /// Total contacts the OS returned (before flattening to phone numbers). Lets
   /// the empty state tell "device has no contacts" apart from "contacts have no
@@ -204,12 +195,10 @@ class ContactLoadResult {
 /// it. On platforms without a contacts backend (web/desktop/tests) the method
 /// channel throws — recorded as [ContactLoadStatus.error] rather than swallowed.
 Future<ContactLoadResult> loadDeviceContacts() async {
-  // Build marker so the log unambiguously identifies the 1.x getContacts path.
-  debugPrint('Moona[contacts-1x]: loadDeviceContacts start');
   try {
     final status = await Permission.contacts.request();
     if (!status.isGranted && !status.isLimited) {
-      debugPrint('Moona[contacts-1x]: permission not granted ($status)');
+      debugPrint('Moona[contacts]: permission not granted ($status)');
       return const ContactLoadResult(ContactLoadStatus.denied, []);
     }
     // By default flutter_contacts adds `IN_VISIBLE_GROUP = 1` to the query, which
@@ -231,17 +220,17 @@ Future<ContactLoadResult> loadDeviceContacts() async {
             ),
     ];
     debugPrint(
-      'Moona[contacts-1x]: getContacts -> ${raw.length} contacts, '
-      '${contacts.length} phones (perm=$status).',
+      'Moona[contacts]: getContacts -> ${raw.length} contacts, '
+      '${contacts.length} phones.',
     );
     return ContactLoadResult(
       ContactLoadStatus.ok,
       contacts,
       rawCount: raw.length,
     );
-  } catch (e, st) {
-    debugPrint('Moona[contacts-1x]: FAILED: $e\n$st');
-    return ContactLoadResult(ContactLoadStatus.error, const [], error: '$e');
+  } catch (e) {
+    debugPrint('Moona[contacts]: read failed: $e');
+    return const ContactLoadResult(ContactLoadStatus.error, []);
   }
 }
 
@@ -429,18 +418,19 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
     ref.read(appControllerProvider.notifier).requestShare(phone);
   }
 
-  /// Fallback path: launch the OS contact picker (`ACTION_PICK`). The system
+  /// Convenience path: launch the OS contact picker (`ACTION_PICK`). The system
   /// contacts app does the reading and hands back only the chosen contact via a
-  /// temporary URI grant, so this works even when the device blocks the app's
-  /// own contacts query. The picked number is looked up + added as a row so it
-  /// lands in On Moona / Not on Moona just like a browsed contact.
+  /// temporary URI grant — a one-tap alternative to scrolling the in-app list,
+  /// and a safety net if the in-app read ever comes up short on some device. The
+  /// picked number is looked up + added as a row so it lands in On Moona / Not
+  /// on Moona just like a browsed contact.
   Future<void> _pickFromSystem() async {
     native_picker.Contact? picked;
     try {
       picked = await native_picker.FlutterNativeContactPicker()
           .selectPhoneNumber();
     } catch (e) {
-      debugPrint('Moona[contacts-1x]: native pick failed: $e');
+      debugPrint('Moona[contacts]: native pick failed: $e');
     }
     if (!mounted || picked == null) return;
     final number = picked.selectedPhoneNumber?.trim().isNotEmpty == true
@@ -510,9 +500,9 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
           trailing: MoonaIcon('search', size: 20, color: c.onSurfaceVariant),
         ),
         const SizedBox(height: 10),
-        // Always available: opens the OS contact picker. It's the only path
-        // that works when the device blocks the app's own contacts read, and a
-        // convenient native shortcut otherwise.
+        // Always available: opens the OS contact picker — a one-tap native
+        // shortcut alongside the in-app list, and a safety net if that list
+        // ever comes up short on some device.
         MoonaButton(
           label: t.pickFromContacts,
           icon: 'person',
@@ -549,12 +539,6 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
                   }
                 : t.enterPhoneManually,
           ),
-          // Surface the raw failure so an empty list is never a silent mystery.
-          if (widget.loaded.status == ContactLoadStatus.error &&
-              widget.loaded.error != null) ...[
-            const SizedBox(height: 6),
-            _EmptyHint(text: widget.loaded.error!),
-          ],
           if (widget.loaded.status == ContactLoadStatus.denied) ...[
             const SizedBox(height: 8),
             MoonaButton(
