@@ -67,6 +67,7 @@ class MainScreen extends ConsumerWidget {
                   trashCount: state.trash.length,
                   sharingActive: sharingActive,
                   grouped: state.grouped,
+                  settingsBusy: state.busy,
                   shareTooltip: t.shareList,
                   onSort: () => showSortSheet(context),
                   onTrash: () => showTrashSheet(context),
@@ -226,6 +227,7 @@ class _Header extends StatelessWidget {
     required this.trashCount,
     required this.sharingActive,
     required this.grouped,
+    required this.settingsBusy,
     required this.shareTooltip,
     required this.onSort,
     required this.onTrash,
@@ -238,6 +240,7 @@ class _Header extends StatelessWidget {
   final int trashCount;
   final bool sharingActive;
   final bool grouped;
+  final bool settingsBusy;
   final String shareTooltip;
   final VoidCallback onSort;
   final VoidCallback onTrash;
@@ -314,6 +317,7 @@ class _Header extends StatelessWidget {
             icon: 'settings',
             size: 20,
             dim: true,
+            loading: settingsBusy,
             onPressed: onSettings,
           ),
         ],

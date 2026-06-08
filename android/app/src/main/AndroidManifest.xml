@@ -35,8 +35,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Home-screen widget: renders the shopping list (MoonaWidgetService
-             supplies the rows). Refreshed on demand from Flutter via home_widget. -->
+        <!-- Home-screen widget: renders the shopping list. Rows are added
+             directly by MoonaWidgetProvider (no RemoteViewsService). Refreshed
+             on demand from Flutter via home_widget. -->
         <receiver
             android:name=".MoonaWidgetProvider"
             android:exported="true"
@@ -48,10 +49,6 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/moona_widget_info" />
         </receiver>
-        <service
-            android:name=".MoonaWidgetService"
-            android:permission="android.permission.BIND_REMOTEVIEWS_SERVICE"
-            android:exported="false" />
 
         <!-- Routes widget taps (check-off / undo / detail toggle) to the
              background Dart isolate (home_widget WorkManager worker). -->

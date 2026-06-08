@@ -42,15 +42,35 @@ class AppController extends Notifier<AppState> {
   // ── auth ──────────────────────────────────────────────────────────────
   Future<void> _restoreSession() async {
     if (state.screen != AppScreen.login || state.busy) return;
-    // Show the sign-in indicator (and disable the login form) while we probe
-    // for an existing session and, if found, run profile + bootstrap.
-    state = state.copyWith(busy: true);
+    // Offline-first: if a previous sign-in cached the list, show the home screen
+    // immediately (with the sign-in indicator spinning via [busy]) while we
+    // re-validate the session and refresh in the background. Otherwise fall back
+    // to the login screen with its spinner as before.
+    final cached = await _repo.cachedBootstrap();
+    if (_disposed) return;
+    if (cached != null && state.screen == AppScreen.login) {
+      _applyBootstrap(cached, busy: true);
+    } else {
+      state = state.copyWith(busy: true);
+    }
     try {
       final restored = await _repo.restoreSession();
       if (_disposed) return;
-      if (restored && state.screen == AppScreen.login) {
+      if (restored) {
         await _loadBootstrap();
         if (!_disposed) _subscribeRealtime();
+        return;
+      }
+      // The persisted session is gone. If we optimistically showed the cached
+      // home screen, drop back to login and clear the now-stale cache.
+      if (state.screen == AppScreen.main) {
+        await _repo.clearCache();
+        if (_disposed) return;
+        state = AppState(
+          screen: AppScreen.login,
+          lang: state.lang,
+          dark: state.dark,
+        );
         return;
       }
     } catch (e, stack) {
@@ -88,6 +108,7 @@ class AppController extends Notifier<AppState> {
 
   Future<void> logout() async {
     _cancelEverything();
+    await _repo.clearCache();
     await _repo.signOut();
     state = AppState(
       screen: AppScreen.login,
@@ -98,9 +119,16 @@ class AppController extends Notifier<AppState> {
 
   Future<void> _loadBootstrap() async {
     final data = await _repo.bootstrap();
+    _applyBootstrap(data, busy: false);
+  }
+
+  /// Writes a [BootstrapData] into [state] and switches to the main screen.
+  /// Keep [busy] true when hydrating from the local cache so the home screen
+  /// shows the sign-in indicator (spinning gear) until the live refresh lands.
+  void _applyBootstrap(BootstrapData data, {required bool busy}) {
     state = state.copyWith(
       screen: AppScreen.main,
-      busy: false,
+      busy: busy,
       loginError: null,
       profile: data.profile,
       lang: data.profile.language,

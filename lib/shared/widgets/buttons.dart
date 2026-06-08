@@ -106,6 +106,7 @@ class MoonaIconButton extends StatelessWidget {
     this.size = 22,
     this.dim = false,
     this.badge = false,
+    this.loading = false,
     this.color,
     this.tooltip,
   });
@@ -115,6 +116,10 @@ class MoonaIconButton extends StatelessWidget {
   final double size;
   final bool dim;
   final bool badge;
+
+  /// Replaces the icon with a small spinner and disables the tap — used to show
+  /// background work in place (e.g. the Settings gear while signing in).
+  final bool loading;
   final Color? color;
   final String? tooltip;
 
@@ -130,11 +135,18 @@ class MoonaIconButton extends StatelessWidget {
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: onPressed,
+          onTap: loading ? null : onPressed,
           child: Stack(
             alignment: Alignment.center,
             children: [
-              MoonaIcon(icon, size: size, color: tint),
+              if (loading)
+                SizedBox(
+                  width: size,
+                  height: size,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: tint),
+                )
+              else
+                MoonaIcon(icon, size: size, color: tint),
               if (badge)
                 PositionedDirectional(
                   top: 7,

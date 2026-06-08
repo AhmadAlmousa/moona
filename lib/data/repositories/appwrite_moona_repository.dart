@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -5,14 +6,16 @@ import 'package:appwrite/appwrite.dart';
 
 import '../../core/config.dart';
 import '../../core/util/phone.dart';
+import '../cache/bootstrap_cache.dart';
 import '../models/models.dart';
 import 'moona_repository.dart';
 
 /// Live [MoonaRepository] backed by Appwrite (Account, Functions, Storage,
 /// Realtime), following the contract in `back_to_frontend.md`.
 class AppwriteMoonaRepository implements MoonaRepository {
-  AppwriteMoonaRepository({Client? client})
-    : _client =
+  AppwriteMoonaRepository({Client? client, BootstrapCache? cache})
+    : _cache = cache ?? const BootstrapCache(),
+      _client =
           client ??
           (Client()
             ..setEndpoint(MoonaConfig.endpoint)
@@ -22,6 +25,7 @@ class AppwriteMoonaRepository implements MoonaRepository {
     _storage = Storage(_client);
   }
 
+  final BootstrapCache _cache;
   final Client _client;
   late final Account _account;
   late final Functions _functions;
@@ -63,6 +67,7 @@ class AppwriteMoonaRepository implements MoonaRepository {
   @override
   Future<void> signOut() async {
     _realtime = null;
+    await _cache.clear();
     try {
       await _account.deleteSession(sessionId: 'current');
     } on AppwriteException {
@@ -73,8 +78,28 @@ class AppwriteMoonaRepository implements MoonaRepository {
   @override
   Future<BootstrapData> bootstrap() async {
     final data = await _call(MoonaFunctions.getBootstrapData, {});
-    return BootstrapData.fromJson(_asMap(data));
+    final map = _asMap(data);
+    // Cache the raw response so the next launch can hydrate the home screen
+    // instantly (offline-first). Best-effort; never blocks the result.
+    unawaited(_cache.save(map));
+    return BootstrapData.fromJson(map);
   }
+
+  @override
+  Future<BootstrapData?> cachedBootstrap() async {
+    final raw = await _cache.read();
+    if (raw == null) return null;
+    try {
+      return BootstrapData.fromJson(raw);
+    } catch (_) {
+      // A schema drift in the cached blob shouldn't wedge startup — drop it.
+      await _cache.clear();
+      return null;
+    }
+  }
+
+  @override
+  Future<void> clearCache() => _cache.clear();
 
   @override
   Future<Profile> updatePreferences({

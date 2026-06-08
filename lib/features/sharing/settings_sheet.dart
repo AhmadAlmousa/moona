@@ -72,6 +72,8 @@ class _SettingsContent extends ConsumerWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
+              _SharingBlock(onShare: () => showContactFlow(context, ref)),
             ],
           ),
         const SizedBox(height: 22),
@@ -133,13 +135,6 @@ class _SettingsContent extends ConsumerWidget {
                 ],
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        MoonaSection(
-          title: t.sharing,
-          children: [
-            _SharingBlock(onShare: () => showContactFlow(context, ref)),
           ],
         ),
         const SizedBox(height: 22),

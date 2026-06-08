@@ -62,6 +62,9 @@ dependencies:
   intl: ^0.20.2
   collection: ^1.19.1
   home_widget: ^0.9.3
+  # Promoted from transitive: used directly by the offline bootstrap cache
+  # (lib/data/cache/bootstrap_cache.dart writes to the app documents dir).
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

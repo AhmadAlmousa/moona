@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Moona home-screen widget: header (title + detail toggle + add) over a
-     scrollable list of items. Rendered by MoonaWidgetProvider; rows come from
-     MoonaWidgetService. -->
+<!-- Moona home-screen widget: header (title + detail toggle + open + add) over
+     the list of items. Rendered entirely by MoonaWidgetProvider, which adds the
+     item rows directly into widget_list_container. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -38,6 +38,16 @@
             android:contentDescription="@string/widget_description" />
 
         <ImageView
+            android:id="@+id/widget_open"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginStart="8dp"
+            android:padding="7dp"
+            android:background="@drawable/widget_chip_bg"
+            android:src="@drawable/ic_widget_open"
+            android:contentDescription="@string/widget_open_app" />
+
+        <ImageView
             android:id="@+id/widget_add"
             android:layout_width="34dp"
             android:layout_height="34dp"
@@ -58,11 +68,12 @@
         android:textColor="@color/moona_on_surface_variant"
         android:textSize="14sp" />
 
-    <ListView
-        android:id="@+id/widget_list"
+    <!-- Item rows are added directly here by MoonaWidgetProvider (no ListView /
+         RemoteViewsService, which third-party launchers fail to host). -->
+    <LinearLayout
+        android:id="@+id/widget_list_container"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:divider="@null"
-        android:dividerHeight="0dp" />
+        android:orientation="vertical" />
 </LinearLayout>

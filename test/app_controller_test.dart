@@ -13,6 +13,24 @@ ProviderContainer makeContainer() {
   return container;
 }
 
+/// Fake repo with a local bootstrap cache. The inherited `bootstrap()` already
+/// has a ~220ms delay, so tests can observe the offline-first window (home
+/// screen shown from cache while the live refresh is still in flight).
+class _CachingFakeRepo extends FakeMoonaRepository {
+  BootstrapData? cached;
+
+  @override
+  Future<BootstrapData?> cachedBootstrap() async => cached;
+}
+
+/// Fake repo that counts [clearCache] calls (logout cache-clear test).
+class _ClearTrackingRepo extends FakeMoonaRepository {
+  int clears = 0;
+
+  @override
+  Future<void> clearCache() async => clears++;
+}
+
 void main() {
   test('signIn loads the main screen with the owner list', () async {
     final container = makeContainer();
@@ -42,6 +60,50 @@ void main() {
     expect(state.screen, AppScreen.main);
     expect(state.profile?.phone, '966501112233');
     expect(state.items.length, 7);
+  });
+
+  test('offline cache shows the home screen busy, then refreshes', () async {
+    final repo = _CachingFakeRepo();
+    await repo.signIn(phone: '966501112233', password: 'pw');
+    repo.cached = await repo.bootstrap(); // snapshot to hydrate from
+
+    final container = ProviderContainer(
+      overrides: [repositoryProvider.overrideWithValue(repo)],
+    );
+    addTearDown(container.dispose);
+
+    // First read builds the controller (which kicks off the restore) — starts
+    // on login, as the cache hydrate is still a microtask away.
+    expect(container.read(appControllerProvider).screen, AppScreen.login);
+
+    // The cache hydrate has landed but the (~220ms) live bootstrap has not:
+    // the home screen is shown with the sign-in indicator (busy) spinning.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    var state = container.read(appControllerProvider);
+    expect(state.screen, AppScreen.main);
+    expect(state.busy, isTrue);
+    expect(state.items.length, 7);
+
+    // Once the live refresh completes, the spinner stops.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    state = container.read(appControllerProvider);
+    expect(state.busy, isFalse);
+    expect(state.items.length, 7);
+  });
+
+  test('logout clears the bootstrap cache', () async {
+    final repo = _ClearTrackingRepo();
+    final container = ProviderContainer(
+      overrides: [repositoryProvider.overrideWithValue(repo)],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(appControllerProvider.notifier);
+    await controller.signIn('966501112233', 'pw');
+
+    await controller.logout();
+
+    expect(repo.clears, greaterThanOrEqualTo(1));
+    expect(container.read(appControllerProvider).screen, AppScreen.login);
   });
 
   test('addItem appends and rejects duplicates', () async {

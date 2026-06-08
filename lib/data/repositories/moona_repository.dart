@@ -68,8 +68,19 @@ abstract class MoonaRepository {
 
   Future<void> signOut();
 
-  /// Loads everything the main screen needs in one round-trip.
+  /// Loads everything the main screen needs in one round-trip. On success the
+  /// raw response is cached locally for [cachedBootstrap].
   Future<BootstrapData> bootstrap();
+
+  /// Returns the last locally-cached [bootstrap] result without any network or
+  /// session, or null when nothing is cached. Used to render the home screen
+  /// instantly on launch while the live session is re-validated in the
+  /// background. The fake repository returns null.
+  Future<BootstrapData?> cachedBootstrap();
+
+  /// Clears the local bootstrap cache (called on logout, or when a restored
+  /// session turns out to be invalid).
+  Future<void> clearCache();
 
   Future<Profile> updatePreferences({
     String? language,

@@ -101,10 +101,13 @@ String? _lastPushedJson;
 /// Writes the latest snapshot to shared storage and refreshes the widget.
 /// Best-effort: no-op on web and swallows the platform error where the plugin
 /// isn't available (tests/desktop), so callers can fire it unconditionally.
-Future<void> pushWidgetSnapshot(AppState s) async {
+///
+/// Pass [force] to write + refresh even when the snapshot is unchanged (e.g. on
+/// app resume) so the native widget always re-renders the current list.
+Future<void> pushWidgetSnapshot(AppState s, {bool force = false}) async {
   if (kIsWeb) return;
   final json = jsonEncode(buildWidgetPayload(s));
-  if (json == _lastPushedJson) return;
+  if (!force && json == _lastPushedJson) return;
   _lastPushedJson = json;
   try {
     await HomeWidget.saveWidgetData<String>(MoonaWidget.payloadKey, json);

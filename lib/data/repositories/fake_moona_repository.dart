@@ -280,7 +280,7 @@ class FakeMoonaRepository implements MoonaRepository {
     required String password,
   }) async {
     await _delay();
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    final digits = normalizePhone(phone).digits;
     var user = _users.values.where((u) => u.phone == digits).firstOrNull;
     if (user == null) {
       final id = 'u$digits';
@@ -322,6 +322,12 @@ class FakeMoonaRepository implements MoonaRepository {
       profileNames: _profileNames,
     );
   }
+
+  @override
+  Future<BootstrapData?> cachedBootstrap() async => null;
+
+  @override
+  Future<void> clearCache() async {}
 
   @override
   Future<Profile> updatePreferences({
@@ -505,7 +511,7 @@ class FakeMoonaRepository implements MoonaRepository {
   @override
   Future<ShareRequestResult> requestShare(String phone) async {
     await _delay();
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    final digits = normalizePhone(phone).digits;
     final target = _users.values.where((u) => u.phone == digits).firstOrNull;
     if (target == null) {
       return const ShareRequestResult(targetExists: false);

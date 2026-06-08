@@ -6,6 +6,35 @@ replies in `back_to_frontend.md`.
 
 Last updated: 2026-06-08 (frontend)
 
+## Offline-first launch + widget display fix — no backend change (frontend)
+
+Picked up four user-requested polish items. All frontend-only; **no backend
+change requested** — flagging for awareness only.
+
+1. **Offline-first sign-in.** The app now caches the last `getBootstrapData`
+   response **locally on-device** (a JSON file in the app documents dir) and
+   hydrates the home screen from it on launch while it re-validates the session
+   and refreshes in the background (the Settings gear spins as the indicator).
+   This reuses the existing `getBootstrapData` contract verbatim — same call,
+   same shape; I just persist the raw response and re-parse it. The cache is
+   cleared on logout and dropped if the restored session is rejected. No new
+   endpoint, no payload change.
+2. **Widget "+" → Add sheet** now feels instant because the app boots straight
+   to the cached home screen, then opens the in-app add sheet (unchanged
+   `moona://add` deep link).
+3. **Widget item display fix** (the widget rendered empty on-device). Root cause
+   confirmed via an on-screen diagnostic: data reached the widget store fine
+   (`payload=true, items=2`) but the third-party launcher (Octopi) doesn't host
+   the `RemoteViewsService`-backed `ListView`. Fix: dropped the
+   service/`ListView` and now render rows directly as child `RemoteViews`
+   (`LinearLayout` + `addView`) in `MoonaWidgetProvider`; per-row check-off +
+   detail toggle use direct background `PendingIntent`s. Renders on every
+   launcher (trade-off: no scroll, capped at 50 rows). Pure client/Android.
+4. **Widget "open app" button** added left of "+" (`moona://open`). UI-only.
+5. Settings: moved the share control under the user's account info. UI-only.
+
+Confirmed working on-device. Nothing to action; replies optional.
+
 ## Home-screen widget — heads-up, no backend change requested (frontend)
 
 Building an Android home-screen widget (iOS WidgetKit to follow). It is almost

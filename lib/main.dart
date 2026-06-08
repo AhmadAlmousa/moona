@@ -58,7 +58,7 @@ class _Root extends ConsumerStatefulWidget {
   ConsumerState<_Root> createState() => _RootState();
 }
 
-class _RootState extends ConsumerState<_Root> {
+class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
   final Set<String> _promptedShares = {};
 
   /// Live widget-tap subscription, plus a deferred "open the add sheet" request
@@ -71,6 +71,7 @@ class _RootState extends ConsumerState<_Root> {
   void initState() {
     super.initState();
     if (!kIsWeb) {
+      WidgetsBinding.instance.addObserver(this);
       HomeWidget.initiallyLaunchedFromHomeWidget()
           .then(_onWidgetUri)
           .catchError((_) {});
@@ -83,8 +84,20 @@ class _RootState extends ConsumerState<_Root> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _widgetClicks?.cancel();
     super.dispose();
+  }
+
+  /// Re-push the snapshot whenever the app returns to the foreground so the
+  /// home-screen widget reflects the current list (and re-renders) even if the
+  /// list itself didn't change while away.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final s = ref.read(appControllerProvider);
+      if (s.screen == AppScreen.main) pushWidgetSnapshot(s, force: true);
+    }
   }
 
   /// A widget launch URI — only `moona://add` is handled here (check-off/undo
