@@ -5,6 +5,7 @@ import '../core/config.dart';
 import '../data/repositories/appwrite_moona_repository.dart';
 import '../data/repositories/fake_moona_repository.dart';
 import '../data/repositories/moona_repository.dart';
+import '../features/push/push_notifications.dart';
 import 'app_controller.dart';
 import 'app_state.dart';
 
@@ -20,6 +21,13 @@ final repositoryProvider = Provider<MoonaRepository>((ref) {
 
 final appControllerProvider = NotifierProvider<AppController, AppState>(
   AppController.new,
+);
+
+/// Push-notification integration. Defaults to a no-op so web, desktop, and the
+/// test suite stay Firebase-free; `main` overrides this with the Firebase-backed
+/// implementation on Android (see lib/main.dart).
+final pushProvider = Provider<PushNotifications>(
+  (ref) => const NoopPushNotifications(),
 );
 
 /// A lightweight toast message with a unique key so identical strings still

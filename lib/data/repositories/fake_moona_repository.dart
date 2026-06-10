@@ -759,6 +759,12 @@ class FakeMoonaRepository implements MoonaRepository {
     // Single-client simulation: no peers ever appear, so presence is a no-op.
   }
 
+  @override
+  Future<String?> registerPushTarget(String token) async => null;
+
+  @override
+  Future<void> removePushTarget() async {}
+
   SharingStatus _sharingStatus() {
     final outgoing = _shares
         .where((s) => s.ownerId == _me.id && s.status != ShareStatus.revoked)

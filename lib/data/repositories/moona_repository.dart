@@ -144,6 +144,17 @@ abstract class MoonaRepository {
   /// list (Phase 3). Best-effort; heartbeated by the client while in Store Mode.
   Future<void> setShoppingPresence({required bool active});
 
+  /// Registers (or updates) this device's FCM token as an Appwrite push target
+  /// for the signed-in user, reusing the locally persisted target id across
+  /// token refreshes. Returns the target id, or null when registration failed
+  /// (best-effort — push is never allowed to block auth). The fake repository
+  /// returns null.
+  Future<String?> registerPushTarget(String token);
+
+  /// Deletes this device's Appwrite push target (on logout) and clears the local
+  /// record. Best-effort; a no-op when nothing is registered.
+  Future<void> removePushTarget();
+
   /// Uploads an item image and returns its stable file id, or null on failure.
   Future<String?> uploadImage({
     required Uint8List bytes,

@@ -4,7 +4,68 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-10 (frontend)
+Last updated: 2026-06-10 (frontend — Android push built)
+
+## Push (Phase 3, item 11) — BUILT on the frontend (Android). One gate left: yours (frontend, 2026-06-10)
+
+Your push setup note landed (Firebase `moona-71bf8`, config files dropped in,
+`moona_fcm` FCM provider enabled, payload contract confirmed, owner green-lit
+Android-only). So I did the frontend push pass in one focused go. **`flutter
+analyze` (lib+test) clean, 78 tests pass (+7 in `test/push_test.dart`), and the
+release APK builds with the Firebase deps in place.**
+
+### What I added
+- **Deps:** `firebase_core` + `firebase_messaging` (Android-only path). Firebase
+  is initialised and the FCM push service is selected **only when
+  `defaultTargetPlatform == android`** (in `main.dart`); web/desktop/tests keep a
+  no-op push service, so nothing else is affected. `firebase_options.dart` is not
+  needed — the Android `com.google.gms.google-services` Gradle plugin consumes
+  your `android/app/google-services.json`.
+- **Android wiring:** applied the `google-services` Gradle plugin (settings +
+  app), added `POST_NOTIFICATIONS` to the manifest (requested at runtime after
+  sign-in).
+- **Registration / lifecycle:** after sign-in **and** session restore I call
+  `account.createPushTarget(targetId: ID.unique(), identifier: <fcmToken>,
+  providerId: 'moona_fcm')`. I **persist the target id on-device** so a token
+  refresh `account.updatePushTarget`s the *same* target (no dupes), and **logout
+  `account.deletePushTarget`s** it before the session is torn down. All
+  best-effort — push never blocks auth.
+- **Payload routing (matches your confirmed contract):** I read `data.type` ∈
+  `{ share_requested, share_accepted, item_added, item_edited, shopping_started }`
+  plus `ownerId` / `itemId` / `shareId` / `viewerId` / `actorId`. **Foreground:**
+  a localized in-app toast keyed off `type` (Android suppresses the tray
+  notification while foregrounded), falling back to the notification body.
+  **Tap:** brings the app up and refreshes the visible list (a pending incoming
+  share then auto-prompts via the existing bootstrap path); cold-start taps are
+  handled via `getInitialMessage`. Title `Moona` + human-readable body are shown
+  by the system tray when backgrounded, exactly as you described.
+
+### The one remaining gate is yours
+1. **Flip `MOONA_PUSH_ENABLED=true` on `moonaApi`** — but only **after** at least
+   one device has registered a push target. To verify one exists: sign in on an
+   Android device/build, grant the notification permission, then check that user
+   in the Appwrite console (**Auth → the user → Targets**) — you should see a
+   **push** target on provider **`moona_fcm`**. Once you see it, enable the gate
+   and your already-wired send-on-event points light up.
+2. **Confirm the provider id.** I hardcoded `MoonaConfig.fcmProviderId =
+   'moona_fcm'` (from your note). If the provider id differs, tell me here and
+   I'll change the one constant.
+
+### Caveats I'm logging (no action needed unless they bite)
+- **iOS/APNs stays parked** — I init Firebase + select the push impl on Android
+  only, so the iOS build is untouched. When APNs creds are on `moona_apns`, the
+  iOS pass is: enable the provider, add the iOS push entitlement +
+  `UIBackgroundModes`, and drop the Android-only platform guard.
+- **No `onBackgroundMessage` data handler.** You send notification+data messages,
+  so the system tray displays them when backgrounded and tap-routing covers the
+  rest. If you ever switch any event to **data-only** sends, flag it and I'll add
+  a background isolate handler.
+
+### Verify on-device (two devices on one shared list, once the gate is on)
+Device A adds/edits an item, or starts shopping → device B gets the push (tray
+when backgrounded, toast when foregrounded); tapping it opens B on the refreshed
+list. Share request → target gets `share_requested`; accept → owner gets
+`share_accepted`.
 
 ## Push (Phase 3, item 11) — backend requirements to unblock it (frontend, 2026-06-10)
 

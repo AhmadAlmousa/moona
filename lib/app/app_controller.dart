@@ -8,6 +8,7 @@ import '../core/config.dart';
 import '../core/util/phone.dart';
 import '../data/models/models.dart';
 import '../data/repositories/moona_repository.dart';
+import '../features/push/push_notifications.dart';
 import 'app_state.dart';
 import 'providers.dart';
 
@@ -23,6 +24,7 @@ class AppController extends Notifier<AppState> {
   bool _disposed = false;
 
   MoonaRepository get _repo => ref.read(repositoryProvider);
+  PushNotifications get _push => ref.read(pushProvider);
   void _toast(String message) => ref.read(toastProvider.notifier).show(message);
 
   @override
@@ -61,7 +63,10 @@ class AppController extends Notifier<AppState> {
       if (_disposed) return;
       if (restored) {
         await _loadBootstrap();
-        if (!_disposed) _subscribeRealtime();
+        if (!_disposed) {
+          _subscribeRealtime();
+          unawaited(_push.registerForSession());
+        }
         return;
       }
       // The persisted session is gone. If we optimistically showed the cached
@@ -89,6 +94,7 @@ class AppController extends Notifier<AppState> {
       await _repo.signIn(phone: phone, password: password);
       await _loadBootstrap();
       _subscribeRealtime();
+      unawaited(_push.registerForSession());
     } on InvalidPhoneException {
       state = state.copyWith(busy: false, loginError: state.t.enterPhone);
     } on MoonaException catch (e) {
@@ -111,6 +117,9 @@ class AppController extends Notifier<AppState> {
 
   Future<void> logout() async {
     _cancelEverything();
+    // Delete the push target before tearing down the session (the account API
+    // call needs to be authenticated). Best-effort — never blocks logout.
+    await _push.unregister();
     await _repo.clearCache();
     await _repo.signOut();
     state = AppState(
@@ -581,6 +590,43 @@ class AppController extends Notifier<AppState> {
     } catch (_) {
       // Best-effort.
     }
+  }
+
+  // ── push notifications ───────────────────────────────────────────────────
+  /// Handles a notification tap. The two-screen app has nowhere deeper to route,
+  /// so when signed in we refresh the visible list (picking up a newly added or
+  /// shared item); a pending incoming share auto-prompts via the existing
+  /// bootstrap path. No-op while still on login (cold-start bootstrap covers it).
+  void handlePushTap(Map<String, dynamic> data) {
+    if (state.screen == AppScreen.main) unawaited(refresh());
+  }
+
+  /// Surfaces a foreground push as a toast (Android suppresses the system tray
+  /// notification while the app is foregrounded). Prefers a localized message
+  /// keyed off the backend `type`, falling back to the notification body.
+  void showPushToast(Map<String, dynamic> data) {
+    final message = pushToastMessage(data);
+    if (message != null && message.isNotEmpty) _toast(message);
+  }
+
+  /// Maps a push payload to a localized foreground toast. Returns null when the
+  /// type is unknown and no usable body is present (so nothing is shown).
+  String? pushToastMessage(Map<String, dynamic> data) {
+    final t = state.t;
+    switch (data['type']) {
+      case 'share_requested':
+        return t.pushShareRequested;
+      case 'share_accepted':
+        return t.pushShareAccepted;
+      case 'item_added':
+        return t.pushItemAdded;
+      case 'item_edited':
+        return t.pushItemEdited;
+      case 'shopping_started':
+        return t.pushShoppingStarted;
+    }
+    final body = data['_body'];
+    return body is String && body.isNotEmpty ? body : null;
   }
 
   // ── realtime ────────────────────────────────────────────────────────────

@@ -3,11 +3,16 @@
 > **Status:** Backend pass implemented, provisioned, and redeployed live on
 > 2026-06-09. Latest live `moonaApi` deployment:
 > `6a27ba5da1f0974bb1a2` (Phase B contract correction + gated push send points).
-> **Frontend Phases A, B, and most of C are now shipped.** Phase 3 frontend:
-> **backend-owned scratch undo** + **presence** are built against the live
-> contract (no new deploy needed — verify on-device); **push (item 11) is the
-> only remaining piece**, deferred pending the Messaging provider setup + the
-> `firebase_messaging`/APNs dependency decision (see `front_to_backend.md`).
+> **All 11 features are now built on the frontend.** Phases A, B, and C are
+> shipped. Phase 3: **backend-owned scratch undo** + **presence** are built
+> against the live contract (verify on-device); **push (item 11) is now built
+> too — Android-only** (FCM token → Appwrite push target via
+> `account.createPushTarget`/`updatePushTarget`/`deletePushTarget`, provider
+> `moona_fcm`; foreground toast + tap routing on the confirmed `data.type`
+> contract). `flutter analyze` clean, 78 tests pass, release APK builds. **The
+> only remaining step is operational and backend-owned:** flip
+> `MOONA_PUSH_ENABLED=true` once a device has registered a push target (see
+> `front_to_backend.md`). iOS/APNs remains parked.
 > Originally frontend-authored for backend-dev review.
 > Every feature below states an explicit **Backend role** so the backend surface
 > is unambiguous.

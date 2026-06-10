@@ -1,6 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart'
+    show debugPrint, defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,14 +16,38 @@ import 'data/models/models.dart';
 import 'features/auth/login_screen.dart';
 import 'features/list/item_form.dart';
 import 'features/list/main_screen.dart';
+import 'features/push/firebase_push_notifications.dart';
 import 'features/sharing/incoming_share.dart';
 import 'features/widget/widget_bridge.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Background isolate entry for taps on the home-screen widget.
   HomeWidget.registerInteractivityCallback(moonaWidgetInteraction);
-  runApp(const ProviderScope(child: MoonaApp()));
+
+  // Push is Android-only for now (iOS/APNs parked). Initialise Firebase and
+  // swap in the FCM-backed push service only there; everything else (web,
+  // desktop, tests) keeps the default no-op provider.
+  var firebaseReady = false;
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    try {
+      await Firebase.initializeApp();
+      firebaseReady = true;
+    } catch (e) {
+      // A Firebase init hiccup must not block app start; push just stays off.
+      debugPrint('Moona Firebase init failed: $e');
+    }
+  }
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        if (firebaseReady)
+          pushProvider.overrideWith((ref) => FirebasePushNotifications(ref)),
+      ],
+      child: const MoonaApp(),
+    ),
+  );
 }
 
 class MoonaApp extends ConsumerWidget {
@@ -78,6 +104,18 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
       _widgetClicks = HomeWidget.widgetClicked.listen(
         _onWidgetUri,
         onError: (_) {},
+      );
+      // Wire push handlers (no-op unless the FCM provider was installed in main).
+      // Foreground messages become toasts; taps refresh the visible list.
+      final controller = ref.read(appControllerProvider.notifier);
+      unawaited(
+        ref
+            .read(pushProvider)
+            .init(
+              onForeground: controller.showPushToast,
+              onTap: controller.handlePushTap,
+            )
+            .catchError((Object _) {}),
       );
     }
   }

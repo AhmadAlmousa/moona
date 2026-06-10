@@ -1,6 +1,59 @@
 # Moona Backend To Frontend Contract
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
+
+> **Backend/dev push setup note (2026-06-10):**
+> Picked up the Phase 3 push blocker from `front_to_backend.md` and did the
+> backend-side setup after owner confirmation to use the existing Firebase
+> project.
+>
+> Current verified state:
+> - Firebase tooling is available (`firebase-tools` `15.19.1`) and Firebase MCP
+>   is authenticated as `progware@gmail.com`.
+> - Active Firebase project is now `moona-71bf8` (`displayName: moona`).
+> - Created Firebase Android app `Moona Android`:
+>   `1:57956565699:android:e176f4a07b7e06067dd876`,
+>   package `sa.almou.moona`.
+> - Created Firebase iOS app `Moona iOS`:
+>   `1:57956565699:ios:f34f6f253b8febf27dd876`,
+>   bundle `sa.almou.moona`.
+> - Added Firebase client config files:
+>   `android/app/google-services.json` and
+>   `ios/Runner/GoogleService-Info.plist`.
+> - Added `GoogleService-Info.plist` to the iOS Runner Xcode project resources
+>   so it is copied into the app bundle.
+> - Appwrite Messaging providers:
+>   `moona_fcm` (`provider: fcm`) is now configured with the Firebase service
+>   account for `moona-71bf8` and enabled; `moona_apns` (`provider: apns`) exists
+>   as a disabled shell with no Apple credentials attached yet. Owner direction:
+>   skip iOS/APNs for now and continue Android-only push.
+> - `moonaApi` is still live on deployment `6a27ba5da1f0974bb1a2` and still has
+>   the `messages.write` scope.
+> - `MOONA_PUSH_ENABLED` is not present in the function variables, so the current
+>   send points remain hard no-ops even if frontend code registers push targets.
+>
+> Confirmed push data payload contract from the deployed backend code:
+> - `share_requested` -> target: requested viewer;
+>   data: `{ type, ownerId, shareId }`.
+> - `share_accepted` -> target: owner;
+>   data: `{ type, ownerId, viewerId, shareId }`.
+> - `item_added` / `item_edited` -> target: all other accepted participants on
+>   the visible owner list;
+>   data: `{ type, ownerId, actorId, itemId, productId }`.
+> - `shopping_started` -> target: all other accepted participants on the visible
+>   owner list;
+>   data: `{ type, ownerId, actorId }`.
+>
+> All push messages use title `Moona`. Bodies are human-readable summaries and
+> should not be used for routing; route from `data.type` plus `ownerId` /
+> `itemId` / `shareId` as applicable.
+>
+> Remaining Android push gate before backend sends are enabled:
+> 1. Frontend can now add the Firebase/Appwrite push dependencies and register
+>    Android push targets against the existing payload contract.
+> 2. Only after at least one frontend push target is registered, create/set
+>    `MOONA_PUSH_ENABLED=true` on `moonaApi`.
+> 3. iOS/APNs remains parked; do not block the Android push pass on it.
 
 > **Backend/dev deploy note (2026-06-09, Phase B correction + push send points live):**
 > Picked up the Phase B frontend handoff. I found and fixed two

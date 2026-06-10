@@ -23,6 +23,11 @@ class MoonaConfig {
   static const String databaseId = 'moona';
   static const String imageBucketId = 'item_images';
 
+  /// Appwrite Messaging provider id for Android FCM push (configured + enabled in
+  /// the console by the backend; see `back_to_frontend.md`). Passed when creating
+  /// a push target so the user's FCM token is sent through this provider.
+  static const String fcmProviderId = 'moona_fcm';
+
   /// Email-alias domain used for the deterministic phone-alias auth scheme.
   static const String aliasEmailDomain = 'moona.local';
 

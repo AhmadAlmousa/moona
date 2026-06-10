@@ -305,6 +305,21 @@ class AppStrings {
       ? const ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت']
       : const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  // push notifications (foreground toast; the backend's `data.type` drives these
+  // so the message is localized client-side rather than relying on the body)
+  String get pushShareRequested =>
+      isArabic ? 'لديك طلب مشاركة جديد' : 'New share request';
+  String get pushShareAccepted =>
+      isArabic ? 'تم قبول طلب المشاركة' : 'Your share was accepted';
+  String get pushItemAdded => isArabic
+      ? 'تمت إضافة صنف إلى قائمة مشتركة'
+      : 'An item was added to a shared list';
+  String get pushItemEdited => isArabic
+      ? 'تم تعديل صنف في قائمة مشتركة'
+      : 'An item was updated on a shared list';
+  String get pushShoppingStarted =>
+      isArabic ? 'بدأ أحدهم التسوّق الآن' : 'Someone started shopping';
+
   // generic errors
   String get genericError =>
       isArabic ? 'حدث خطأ، حاول مرة أخرى' : 'Something went wrong, try again';

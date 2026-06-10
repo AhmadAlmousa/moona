@@ -3,29 +3,36 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:appwrite/appwrite.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../../core/config.dart';
 import '../../core/util/phone.dart';
 import '../cache/bootstrap_cache.dart';
+import '../cache/push_target_store.dart';
 import '../models/models.dart';
 import 'moona_repository.dart';
 
 /// Live [MoonaRepository] backed by Appwrite (Account, Functions, Storage,
 /// Realtime), following the contract in `back_to_frontend.md`.
 class AppwriteMoonaRepository implements MoonaRepository {
-  AppwriteMoonaRepository({Client? client, BootstrapCache? cache})
-    : _cache = cache ?? const BootstrapCache(),
-      _client =
-          client ??
-          (Client()
-            ..setEndpoint(MoonaConfig.endpoint)
-            ..setProject(MoonaConfig.projectId)) {
+  AppwriteMoonaRepository({
+    Client? client,
+    BootstrapCache? cache,
+    PushTargetStore? pushTargets,
+  }) : _cache = cache ?? const BootstrapCache(),
+       _pushTargets = pushTargets ?? const PushTargetStore(),
+       _client =
+           client ??
+           (Client()
+             ..setEndpoint(MoonaConfig.endpoint)
+             ..setProject(MoonaConfig.projectId)) {
     _account = Account(_client);
     _functions = Functions(_client);
     _storage = Storage(_client);
   }
 
   final BootstrapCache _cache;
+  final PushTargetStore _pushTargets;
   final Client _client;
   late final Account _account;
   late final Functions _functions;
@@ -256,6 +263,57 @@ class AppwriteMoonaRepository implements MoonaRepository {
       _call(MoonaFunctions.setShoppingPresence, {'active': active});
 
   @override
+  Future<String?> registerPushTarget(String token) async {
+    if (token.isEmpty) return null;
+    final stored = await _pushTargets.read();
+    try {
+      if (stored != null) {
+        // Same token already registered — nothing to do.
+        if (stored.token == token) return stored.targetId;
+        try {
+          await _account.updatePushTarget(
+            targetId: stored.targetId,
+            identifier: token,
+          );
+          await _pushTargets.save(
+            StoredPushTarget(targetId: stored.targetId, token: token),
+          );
+          return stored.targetId;
+        } on AppwriteException catch (e) {
+          if (!_isNotFound(e)) rethrow;
+          // The stored target vanished server-side — fall through and recreate.
+          await _pushTargets.clear();
+        }
+      }
+      final targetId = ID.unique();
+      final target = await _account.createPushTarget(
+        targetId: targetId,
+        identifier: token,
+        providerId: MoonaConfig.fcmProviderId,
+      );
+      await _pushTargets.save(
+        StoredPushTarget(targetId: target.$id, token: token),
+      );
+      return target.$id;
+    } on AppwriteException catch (e) {
+      debugPrint('Moona push target register failed: ${e.message ?? e.type}');
+      return null;
+    }
+  }
+
+  @override
+  Future<void> removePushTarget() async {
+    final stored = await _pushTargets.read();
+    await _pushTargets.clear();
+    if (stored == null) return;
+    try {
+      await _account.deletePushTarget(targetId: stored.targetId);
+    } on AppwriteException {
+      // Already gone (or session expired) — the local record is cleared either way.
+    }
+  }
+
+  @override
   Future<String?> uploadImage({
     required Uint8List bytes,
     required String filename,
@@ -470,6 +528,9 @@ class AppwriteMoonaRepository implements MoonaRepository {
       e.code == 401 ||
       e.type == 'user_unauthorized' ||
       e.type == 'general_unauthorized_scope';
+
+  bool _isNotFound(AppwriteException e) =>
+      e.code == 404 || (e.type ?? '').contains('not_found');
 
   /// Translates a raw [AppwriteException] from the auth flow into a
   /// [MoonaException] the UI can act on. A null/zero HTTP status means no

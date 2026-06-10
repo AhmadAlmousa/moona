@@ -8,6 +8,9 @@
          match them against registered Moona users via `lookupContacts`. The OS
          permission is requested at runtime, just before the picker opens. -->
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <!-- Android 13+ runtime permission for FCM push notifications. Requested at
+         runtime by firebase_messaging's requestPermission() after sign-in. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="moona"
         android:name="${applicationName}"

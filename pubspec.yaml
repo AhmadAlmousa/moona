@@ -68,6 +68,16 @@ dependencies:
   # Keeps the screen awake during in-store "Shopping mode" so the list stays
   # visible while the user shops; released when leaving the screen.
   wakelock_plus: ^1.2.8
+  # Android push (Phase 3 item 11). FCM tokens are registered as Appwrite push
+  # targets (account.createPushTarget, provider `moona_fcm`); the backend sends
+  # via Appwrite Messaging. Wired Android-only — Firebase is initialised and the
+  # push provider is selected behind a `defaultTargetPlatform == android` guard
+  # in main.dart, so web/desktop/tests stay on the no-op push service. iOS/APNs
+  # is parked (no Apple credentials on the provider yet). google-services.json
+  # lives at android/app/ and is consumed by the com.google.gms.google-services
+  # Gradle plugin; no firebase_options.dart is needed for the Android-only setup.
+  firebase_core: ^4.10.0
+  firebase_messaging: ^16.3.0
 
 dev_dependencies:
   flutter_test:
