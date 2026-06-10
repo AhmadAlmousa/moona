@@ -49,3 +49,8 @@ app.*.map.json
 # the non-secret Firebase client API key). Each dev/CI drops these in by hand.
 /android/app/google-services.json
 /ios/Runner/GoogleService-Info.plist
+
+# Locally installed agent skills (per-dev tooling, not app code)
+/.agents/skills/
+/.claude/skills/
+/skills-lock.json
