@@ -1,11 +1,14 @@
 {
-    "name": "moona",
-    "short_name": "moona",
+    "name": "Moona — Shared Shopping List",
+    "short_name": "Moona",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#1F8A5B",
     "theme_color": "#1F8A5B",
-    "description": "A new Flutter project.",
+    "description": "Moona — a bilingual (Arabic/English) shared shopping list.",
+    "lang": "ar",
+    "dir": "auto",
+    "categories": ["shopping", "productivity", "lifestyle"],
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

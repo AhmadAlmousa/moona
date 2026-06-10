@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter_native_contact_picker/flutter_native_contact_picker.dart'
@@ -195,6 +196,14 @@ class ContactLoadResult {
 /// it. On platforms without a contacts backend (web/desktop/tests) the method
 /// channel throws — recorded as [ContactLoadStatus.error] rather than swallowed.
 Future<ContactLoadResult> loadDeviceContacts() async {
+  // Web/PWA has no full address-book read (`flutter_contacts` ships no web impl,
+  // and the browser Contact Picker API only returns user-picked entries). Skip
+  // the plugin call entirely and fall back to manual phone entry — intentional,
+  // not an exception we happen to swallow below.
+  if (kIsWeb) {
+    debugPrint('Moona[contacts]: web — manual entry only (no address-book read)');
+    return const ContactLoadResult(ContactLoadStatus.error, []);
+  }
   try {
     final status = await Permission.contacts.request();
     if (!status.isGranted && !status.isLimited) {

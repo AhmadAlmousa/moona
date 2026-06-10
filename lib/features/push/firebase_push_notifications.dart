@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../core/config.dart';
 import '../../data/repositories/moona_repository.dart';
 import 'push_notifications.dart';
 
@@ -74,7 +75,18 @@ class FirebasePushNotifications implements PushNotifications {
       final messaging = FirebaseMessaging.instance;
       final settings = await messaging.requestPermission();
       if (settings.authorizationStatus == AuthorizationStatus.denied) return;
-      final token = await messaging.getToken();
+      // Web/PWA requires the FCM Web Push (VAPID) public key for getToken; native
+      // doesn't. With no key configured, skip rather than fail (push stays off).
+      final String? token;
+      if (kIsWeb) {
+        if (MoonaConfig.fcmVapidKey.isEmpty) {
+          debugPrint('Moona push: web VAPID key not set; skipping registration');
+          return;
+        }
+        token = await messaging.getToken(vapidKey: MoonaConfig.fcmVapidKey);
+      } else {
+        token = await messaging.getToken();
+      }
       if (token == null || token.isEmpty) return;
       await _repo.registerPushTarget(token);
     } catch (e) {

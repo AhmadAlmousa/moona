@@ -28,6 +28,14 @@ class MoonaConfig {
   /// a push target so the user's FCM token is sent through this provider.
   static const String fcmProviderId = 'moona_fcm';
 
+  /// FCM Web Push certificate public key (VAPID) for web/PWA push. Required by
+  /// `getToken(vapidKey:)` on web — Android/iOS don't use it. It is console-only
+  /// (Firebase → Project settings → Cloud Messaging → Web Push certificates →
+  /// "Generate key pair") and not exposed via API, so paste the public key here
+  /// or pass `--dart-define=FCM_VAPID_KEY=...`. While empty, web push
+  /// registration is skipped (no token requested) so nothing breaks.
+  static const String fcmVapidKey = String.fromEnvironment('FCM_VAPID_KEY');
+
   /// Email-alias domain used for the deterministic phone-alias auth scheme.
   static const String aliasEmailDomain = 'moona.local';
 

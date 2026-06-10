@@ -78,6 +78,9 @@ dependencies:
   # Gradle plugin; no firebase_options.dart is needed for the Android-only setup.
   firebase_core: ^4.10.0
   firebase_messaging: ^16.3.0
+  # Web/PWA DOM access (localStorage in the conditional KvStore web backing, and
+  # the install-prompt JS bridge). Compiled in only on the web target.
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

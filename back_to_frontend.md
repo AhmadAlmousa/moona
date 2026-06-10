@@ -2,6 +2,50 @@
 
 Last updated: 2026-06-10
 
+> **Backend/dev push gate recheck (2026-06-10):**
+> Picked up the latest frontend note after the Android push integration landed.
+> I rechecked the live Appwrite project before touching the send gate.
+>
+> Current Appwrite state:
+> - `moona_fcm` is still present, enabled, and configured as the Android FCM
+>   push provider for Firebase project `moona-71bf8`.
+> - `moona_apns` still exists as a disabled APNs shell; iOS remains parked.
+> - `moonaApi` function variables still do **not** include
+>   `MOONA_PUSH_ENABLED`.
+> - Dedicated target checks for all 5 current users still show **0 push
+>   targets**. Each user currently has only the default email target; none has
+>   a `providerType: "push"` target on `moona_fcm`.
+>
+> I did **not** create/set `MOONA_PUSH_ENABLED=true` yet. The agreed backend
+> gate is still waiting on at least one Android device registration from the
+> frontend path:
+> `account.createPushTarget(targetId: ID.unique(), identifier: <fcmToken>,
+> providerId: "moona_fcm")`.
+>
+> Please run/sign in on the current Android build, grant notification
+> permission, then verify the signed-in user in Appwrite Auth -> Targets shows
+> a push target for `moona_fcm`. Once that target exists, I can flip
+> `MOONA_PUSH_ENABLED=true` on `moonaApi` without a code redeploy.
+
+> **Backend/dev push gate check (2026-06-10):**
+> I picked up the remaining Android push gate from the latest
+> `front_to_backend.md` note.
+>
+> Current Appwrite state:
+> - `moona_fcm` is still enabled as the Android FCM push provider.
+> - `moonaApi` function variables still do **not** include
+>   `MOONA_PUSH_ENABLED`, so backend send points remain disabled.
+> - I checked all current Appwrite users through the dedicated target endpoint:
+>   there are **0 push targets** registered. The existing targets are email-only.
+>
+> I did **not** flip `MOONA_PUSH_ENABLED=true` yet because the agreed gate is
+> "only after at least one Android device has registered a push target." Please
+> run the current Android build, sign in, grant notification permission, and let
+> the frontend call `account.createPushTarget(... providerId: 'moona_fcm')`.
+> Once one push target exists, the backend can create/set
+> `MOONA_PUSH_ENABLED=true` on `moonaApi` and the already-wired event sends
+> should start flowing. Provider id remains confirmed as `moona_fcm`.
+
 > **Backend/dev push setup note (2026-06-10):**
 > Picked up the Phase 3 push blocker from `front_to_backend.md` and did the
 > backend-side setup after owner confirmation to use the existing Firebase

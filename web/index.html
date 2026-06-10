@@ -18,19 +18,53 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Moona — a bilingual shared shopping list.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="moona">
+  <meta name="apple-mobile-web-app-title" content="Moona">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>moona</title>
+  <title>Moona</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    PWA install-prompt capture. Browsers fire `beforeinstallprompt` once when the
+    app is installable (HTTPS, manifest, service worker, not already installed).
+    We stash the event so Dart can trigger the native install dialog on demand
+    (see lib/features/pwa/pwa_install_web.dart). `appinstalled` clears it.
+  -->
+  <script>
+    window.moonaPwa = window.moonaPwa || { deferred: null, installed: false };
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      window.moonaPwa.deferred = e;
+    });
+    window.addEventListener('appinstalled', function () {
+      window.moonaPwa.deferred = null;
+      window.moonaPwa.installed = true;
+    });
+    // True only when the platform can show the native install dialog right now.
+    window.moonaPwaCanInstall = function () {
+      return !!(window.moonaPwa && window.moonaPwa.deferred);
+    };
+    // Triggers the stashed prompt; resolves to the user's choice
+    // ("accepted" | "dismissed" | "unavailable"). One-shot: the event can only
+    // be used once, so we drop it afterwards.
+    window.moonaPwaPromptInstall = function () {
+      var p = window.moonaPwa && window.moonaPwa.deferred;
+      if (!p) return Promise.resolve("unavailable");
+      window.moonaPwa.deferred = null;
+      p.prompt();
+      return p.userChoice.then(function (choice) {
+        return (choice && choice.outcome) ? choice.outcome : "dismissed";
+      }).catch(function () { return "dismissed"; });
+    };
+  </script>
 </head>
 <body>
   <!--

@@ -320,6 +320,15 @@ class AppStrings {
   String get pushShoppingStarted =>
       isArabic ? 'بدأ أحدهم التسوّق الآن' : 'Someone started shopping';
 
+  // PWA install prompt (web only)
+  String get installPwa => isArabic ? 'تثبيت' : 'Install';
+  String get installPwaTitle =>
+      isArabic ? 'ثبّت مونة على جهازك' : 'Install Moona on your device';
+  String get installPwaBody => isArabic
+      ? 'أضف مونة إلى شاشتك الرئيسية لفتحٍ أسرع وتجربة بملء الشاشة.'
+      : 'Add Moona to your home screen for faster, full-screen access.';
+  String get notNow => isArabic ? 'ليس الآن' : 'Not now';
+
   // generic errors
   String get genericError =>
       isArabic ? 'حدث خطأ، حاول مرة أخرى' : 'Something went wrong, try again';

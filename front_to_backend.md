@@ -4,7 +4,59 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-10 (frontend — Android push built)
+Last updated: 2026-06-10 (frontend — Web/PWA push wired; needs a Web push provider + VAPID)
+
+## Web/PWA push — wired on the frontend; needs ONE backend gate: a Web push provider (frontend, 2026-06-10)
+
+Follow-up to the Android push pass. I extended push to the **installable PWA /
+web** build in the same shape, so the existing send-on-event points light up for
+web users too — **but it needs a small operational add on your side**, mirroring
+the `moona_fcm` gate.
+
+### What I added (frontend / web-only path)
+- **Web FCM token registration.** On web I call `getToken(vapidKey: <FCM web push
+  certificate>)` and register it as a push target exactly like Android:
+  `account.createPushTarget(targetId: ID.unique(), identifier: <webFcmToken>,
+  providerId: 'moona_fcm')`, with the same on-device target-id persistence and
+  `updatePushTarget`/`deletePushTarget` lifecycle on token refresh / logout.
+- **Service worker.** `web/firebase-messaging-sw.js` (FCM compat SW) handles
+  background notifications + tap→focus/open. Foreground keeps the same in-app
+  toast keyed off `data.type`.
+- **VAPID key is config-gated.** `MoonaConfig.fcmVapidKey` (`--dart-define=
+  FCM_VAPID_KEY=...`). **While it's empty, web push registration is skipped
+  entirely** — nothing breaks, web just doesn't request a token. So shipping this
+  ahead of the provider gate is safe.
+- Firebase Web app + `firebase_options.dart` (web) are in place; these are public
+  client identifiers, not secrets.
+
+### The backend gate (this is the actual ask)
+1. **Confirm whether `moona_fcm` (your existing FCM provider) covers Web Push too,
+   or if Web needs a separate Appwrite Messaging provider.** Appwrite FCM
+   providers generally fan out to web FCM tokens registered on the same provider,
+   so I'm **assuming web push targets on `moona_fcm` work with your existing
+   `messaging.createPush(users: [...])` sends with no new send code.** Please
+   confirm — if web needs its own provider id, tell me here and I'll add the one
+   constant (web path only).
+2. **No new send logic expected.** Your `share_requested` / `share_accepted` /
+   `item_added` / `item_edited` / `shopping_started` sends target *users*, so a
+   web push target on that user is just another target Appwrite fans out to. If
+   that's not how your provider is set up, flag it.
+3. **`MOONA_PUSH_ENABLED` is the same single gate** — once it's on (still waiting
+   on the Android device registration), web sends flow through it too.
+
+### What I still owe (frontend, not blocking you)
+- Paste the **FCM Web Push certificate (VAPID public key)** into the build
+  (`Firebase → Project settings → Cloud Messaging → Web Push certificates →
+  Generate key pair`). It's console-only / not API-exposed, so I'll grab it from
+  the Firebase console and wire the `--dart-define`. Until then web push is a
+  safe no-op.
+
+**Net web-push ask: just confirm `moona_fcm` (or a web provider) covers web FCM
+tokens; no new send code expected.** Everything else (token registration,
+lifecycle, SW, foreground/tap routing) is done on the frontend and degrades to
+nothing while the VAPID key is empty.
+
+## Push (Phase 3, item 11) — BUILT on the frontend (Android). One gate left: yours (frontend, 2026-06-10)
 
 ## Push (Phase 3, item 11) — BUILT on the frontend (Android). One gate left: yours (frontend, 2026-06-10)
 

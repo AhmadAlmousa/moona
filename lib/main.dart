@@ -14,8 +14,10 @@ import 'core/theme/moona_colors.dart';
 import 'core/theme/moona_theme.dart';
 import 'data/models/models.dart';
 import 'features/auth/login_screen.dart';
+import 'firebase_options.dart';
 import 'features/list/item_form.dart';
 import 'features/list/main_screen.dart';
+import 'features/pwa/pwa_install.dart';
 import 'features/push/firebase_push_notifications.dart';
 import 'features/sharing/incoming_share.dart';
 import 'features/widget/widget_bridge.dart';
@@ -25,18 +27,22 @@ Future<void> main() async {
   // Background isolate entry for taps on the home-screen widget.
   HomeWidget.registerInteractivityCallback(moonaWidgetInteraction);
 
-  // Push is Android-only for now (iOS/APNs parked). Initialise Firebase and
-  // swap in the FCM-backed push service only there; everything else (web,
-  // desktop, tests) keeps the default no-op provider.
+  // Push runs on Android (FCM via google-services.json) and web/PWA (FCM via
+  // explicit web options). iOS/APNs is parked; desktop + tests keep the default
+  // no-op provider. We initialise Firebase and swap in the FCM-backed service
+  // only where it's supported.
   var firebaseReady = false;
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    try {
+  try {
+    if (kIsWeb) {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.web);
+      firebaseReady = true;
+    } else if (defaultTargetPlatform == TargetPlatform.android) {
       await Firebase.initializeApp();
       firebaseReady = true;
-    } catch (e) {
-      // A Firebase init hiccup must not block app start; push just stays off.
-      debugPrint('Moona Firebase init failed: $e');
     }
+  } catch (e) {
+    // A Firebase init hiccup must not block app start; push just stays off.
+    debugPrint('Moona Firebase init failed: $e');
   }
 
   runApp(
@@ -93,9 +99,13 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
   StreamSubscription<Uri?>? _widgetClicks;
   bool _pendingWidgetAdd = false;
 
+  /// One-shot guard so the PWA install banner is offered at most once per run.
+  bool _promptedInstall = false;
+
   @override
   void initState() {
     super.initState();
+    // Home-screen widget is native-only (no web equivalent).
     if (!kIsWeb) {
       WidgetsBinding.instance.addObserver(this);
       HomeWidget.initiallyLaunchedFromHomeWidget()
@@ -105,18 +115,27 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
         _onWidgetUri,
         onError: (_) {},
       );
-      // Wire push handlers (no-op unless the FCM provider was installed in main).
-      // Foreground messages become toasts; taps refresh the visible list.
-      final controller = ref.read(appControllerProvider.notifier);
-      unawaited(
-        ref
-            .read(pushProvider)
-            .init(
-              onForeground: controller.showPushToast,
-              onTap: controller.handlePushTap,
-            )
-            .catchError((Object _) {}),
-      );
+    }
+    // Wire push handlers on every platform (no-op unless an FCM provider was
+    // installed in main — Android or web/PWA). Foreground messages become
+    // toasts; taps refresh the visible list.
+    final controller = ref.read(appControllerProvider.notifier);
+    unawaited(
+      ref
+          .read(pushProvider)
+          .init(
+            onForeground: controller.showPushToast,
+            onTap: controller.handlePushTap,
+          )
+          .catchError((Object _) {}),
+    );
+
+    // `beforeinstallprompt` may arrive shortly after load; re-check a couple of
+    // times in case it fires after we've reached the main screen.
+    if (kIsWeb) {
+      for (final delay in const [Duration(seconds: 3), Duration(seconds: 8)]) {
+        Future.delayed(delay, _maybePromptInstall);
+      }
     }
   }
 
@@ -181,6 +200,40 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
     );
   }
 
+  /// Offers the PWA install banner once, when the browser reports it can show
+  /// the native install dialog and the user is on the main screen. No-op on
+  /// native platforms and on browsers without `beforeinstallprompt` (e.g. iOS
+  /// Safari, where the user installs via the Share sheet manually).
+  void _maybePromptInstall() {
+    if (_promptedInstall || !kIsWeb || !mounted) return;
+    if (ref.read(appControllerProvider).screen != AppScreen.main) return;
+    if (!pwaCanInstall()) return;
+    _promptedInstall = true;
+    final t = ref.read(appControllerProvider).t;
+    final c = context.c;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: c.surface,
+        leading: Icon(Icons.install_mobile_rounded, color: c.primary),
+        content: Text(t.installPwaBody),
+        actions: [
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: Text(t.notNow),
+          ),
+          FilledButton(
+            onPressed: () async {
+              messenger.hideCurrentMaterialBanner();
+              await pwaPromptInstall();
+            },
+            child: Text(t.installPwa),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _maybePromptShare(List<Share> pending) {
     if (pending.isEmpty) return;
     final share = pending.first;
@@ -208,6 +261,7 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
     ref.listen(appControllerProvider, (_, next) {
       if (next.screen == AppScreen.main) pushWidgetSnapshot(next);
       _maybeOpenWidgetAdd();
+      _maybePromptInstall();
     });
 
     final AppScreen screen = ref.watch(appControllerProvider.select((s) => s.screen));
