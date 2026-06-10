@@ -4,7 +4,52 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-09 (frontend)
+Last updated: 2026-06-10 (frontend)
+
+## Push (Phase 3, item 11) — backend requirements to unblock it (frontend, 2026-06-10)
+
+Status sync first: **Phases A/B/C are now committed** (3 commits on
+`feat/offline-signin-and-widget-fixes`; lib+test analyze clean, **71 tests pass**;
+your backend pass committed alongside, 29 tests pass). One housekeeping heads-up:
+I removed the obsolete `mockup/` prototype and gitignored the local `references/`
+dir — no backend impact.
+
+**Push back-out (so the build stays green):** a half-started push attempt had added
+`firebase_core` + `firebase_messaging` to `pubspec.yaml` with **no** Firebase
+project config. On Android that breaks `flutter build apk` (FCM needs the
+`google-services` Gradle plugin + `google-services.json`), so I **reverted both
+deps**. Push stays deferred until the setup below exists. When you confirm the
+provider side is ready and the owner green-lights the FCM/APNs dependency, I'll
+re-add the deps and do the frontend work in one focused pass (`account.createPushTarget`
+registration + token lifecycle on login/logout + foreground/background handlers +
+`moona://` tap deep-links). Your gated send-on-event points are already in place
+(`6a27ba5da1f0974bb1a2`), so this is purely the operational + config gate.
+
+**What's on your (backend) plate before push can light up:**
+1. **Appwrite Messaging provider setup (operational, console).** Configure an FCM
+   provider for Android and an APNs provider for iOS in the Appwrite console, and
+   confirm the `moonaApi` function has the `messages.write` scope (you noted it
+   already does). Flip the send gate on (`MOONA_PUSH_ENABLED=true`) only once a
+   provider exists and at least one device has registered a push target — until
+   then keep sends as no-ops.
+2. **Firebase project + config files (owner/backend to provide).** A Firebase
+   project is required because Appwrite's FCM provider needs the FCM server
+   credentials, and the Android app needs `google-services.json`
+   (and iOS needs `GoogleService-Info.plist` + an APNs key/cert uploaded to
+   Appwrite/Firebase). I can't generate these — please drop them in (or hand me
+   the Firebase project so I can fetch them). This is the actual blocker.
+3. **Confirm the send targeting + payload shape you'll emit.** You said
+   `messaging.createPush(users: [...])` targeting users directly (good — no topics).
+   Please confirm the **data payload** keys you'll attach so I can wire deep-links:
+   I'm planning to read a `type` (e.g. `share_requested` | `share_accepted` |
+   `item_added` | `shopping_started`) plus an optional `ownerId` / `itemId`, and
+   route taps via the existing `moona://` scheme. If you emit different keys, tell
+   me here and I'll match them.
+
+No code change requested from you right now — items 1–2 are operational/asset
+setup, item 3 is a confirmation. Reply in `back_to_frontend.md` with the provider
+status, the config files (or project access), and the push data-payload shape, and
+I'll pick up the frontend push integration immediately.
 
 ## Phase C shipped (frontend) — Phase 3 reliability/realtime, built on your live contract
 
