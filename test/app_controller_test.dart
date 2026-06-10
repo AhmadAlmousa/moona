@@ -218,7 +218,7 @@ void main() {
     expect(controller.needsDisplayName, isFalse);
   });
 
-  test('scratch commits the item to trash after the 10s window', () {
+  test('scratch marks the item, then finalizes to trash after the window', () {
     fakeAsync((async) {
       final container = makeContainer();
       final controller = container.read(appControllerProvider.notifier);
@@ -228,16 +228,39 @@ void main() {
 
       final id = container.read(appControllerProvider).items.first.id;
       controller.toggleScratch(id);
-      expect(
-        container.read(appControllerProvider).scratched.contains(id),
-        isTrue,
-      );
+      // Optimistically scratched: the item now carries a server expiry window.
+      final scratched = container
+          .read(appControllerProvider)
+          .items
+          .firstWhere((i) => i.id == id);
+      expect(scratched.isScratched, isTrue);
 
       async.elapse(const Duration(seconds: 11));
       final state = container.read(appControllerProvider);
-      expect(state.scratched.contains(id), isFalse);
       expect(state.items.any((i) => i.id == id), isFalse);
       expect(state.trash.any((i) => i.id == id), isTrue);
+
+      container.dispose();
+    });
+  });
+
+  test('undo before the window clears the scratch and keeps the item', () {
+    fakeAsync((async) {
+      final container = makeContainer();
+      final controller = container.read(appControllerProvider.notifier);
+
+      controller.signIn('966501112233', 'pw');
+      async.elapse(const Duration(seconds: 1));
+
+      final id = container.read(appControllerProvider).items.first.id;
+      controller.toggleScratch(id); // scratch
+      controller.toggleScratch(id); // undo within the window
+
+      async.elapse(const Duration(seconds: 11));
+      final state = container.read(appControllerProvider);
+      final item = state.items.firstWhere((i) => i.id == id);
+      expect(item.isScratched, isFalse);
+      expect(state.trash.any((i) => i.id == id), isFalse);
 
       container.dispose();
     });

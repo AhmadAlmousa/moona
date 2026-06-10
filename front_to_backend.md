@@ -4,7 +4,233 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-08 (frontend)
+Last updated: 2026-06-09 (frontend)
+
+## Phase C shipped (frontend) — Phase 3 reliability/realtime, built on your live contract
+
+Picked up the next phase from `feature_plan.md`: **Phase 3**. Two of the three
+are now built on the frontend against the contract you already deployed
+(`6a27ba5da1f0974bb1a2`) — so **no new backend deploy is needed**, just on-device
+verification. The third (push) is the one item still gated on your operational
+setup; details at the bottom. `flutter analyze` (lib+test) clean, **71 tests
+pass** (added `test/phase_c_test.dart`, +8).
+
+### 1. Backend-owned scratch undo — replaces the client timer (your scratch contract)
+The 10s scratch is now **server-owned**, not a client `Timer` + in-memory set.
+- On tap I call **`scratchItem { itemId, windowSeconds: 10 }`** and render the
+  countdown from the row's **`scratchExpiresAt`** (so a viewer who joins
+  mid-scratch, or restarts the app, sees the correct remaining slice, not a
+  fresh 10s). Undo calls **`undoScratchItem { itemId }`**; at expiry the client
+  fires a best-effort **`finalizeScratch { itemId }`** (your lazy-on-read sweep is
+  the safety net if it doesn't run).
+- `ListItem` now parses `scratchedAt` / `scratchExpiresAt` / `scratchedByUserId`;
+  `isScratched` is derived from `scratchExpiresAt`. I **dropped the client
+  `scratched` Set** entirely — scratch state lives on the row, so it survives
+  restarts and **propagates to all viewers via the existing `list_items`
+  realtime channel** (a scratched-but-active row shows struck-through; the
+  finalize arrives as a `status: trash` update and drops it from the active list).
+- **Widget closed-app fix (the big one):** the background isolate now commits
+  **`scratchItem` up front** on tap instead of a deferred `trashItem`. This
+  **resolves the documented limitation** where a process killed inside the 10s
+  window reverted the check-off — the scratch is durable server-side the instant
+  it's tapped, and your lazy/`finalizeScratch` finalization trashes it regardless.
+  Widget Undo now calls `undoScratchItem` server-side too.
+
+### 2. Someone's-shopping-now (presence) — your `shopping_presence` table + action
+- **Heartbeat:** Store Mode calls **`setShoppingPresence { active: true }`** on
+  enter and re-sends every **30s** (well inside a 60s staleness window), and
+  **`{ active: false }`** on exit.
+- **Indicator:** a slim "X is shopping now" banner on the main screen **and** in
+  Store Mode, shown when another participant on the visible owner list has a
+  **fresh** heartbeat (client treats >60s as stale and re-evaluates on a 15s
+  ticker). Names resolve via the bootstrap `profiles` map (falling back to a
+  row's `actorDisplayName` if you include one).
+- **Realtime:** I added `shopping_presence` to the subscribed channels
+  (`tablesdb.moona.tables.shopping_presence.rows`) and **patch presence rows
+  directly** from the realtime payload (upsert by `actorId`, drop on delete)
+  rather than re-bootstrapping on every heartbeat. I read presence rows from
+  bootstrap's **`shoppingPresence`** array and from realtime as
+  `{ ownerId, actorId, actorDisplayName?, activeAt|updatedAt }`.
+
+### Shape confirmations for you (all tolerant of omission)
+- **`scratchItem` / `undoScratchItem` / `finalizeScratch`**: I don't read a
+  response body — I update optimistically and reconcile from the `list_items`
+  realtime row. So whatever you return is fine; I just need the **row update**
+  to carry `scratchExpiresAt` (set on scratch, cleared on undo) and the eventual
+  `status: trash` on finalize. Confirm scratch fields ride the normal
+  `list_items` realtime row (I'm assuming they do).
+- **`shopping_presence` realtime payload**: I parse `actorId`, `ownerId`, and a
+  timestamp from `activeAt` → `updatedAt` → `$updatedAt` (first present wins).
+  If the raw row has neither `activeAt` nor `updatedAt` set, freshness can't be
+  computed — please make sure one of them is on the row.
+
+**Net Phase C ask: nothing to deploy — just verify on-device** (two devices on
+one shared list: scratch on A shows the countdown on B and finalizes to trash;
+force-stop A then check off from its widget and confirm it stays trashed; both
+see each other's "shopping now" banner in Store Mode).
+
+### Push (Phase 3, item 11) — NOT built yet; blocked on your provider setup
+I deliberately did **not** add `firebase_messaging`/APNs in this pass. It needs
+a real Firebase project (`google-services.json`) + APNs cert that the Android/iOS
+build requires — adding the dependency without those would break the build for
+everyone. You also flagged sends stay no-ops until the **Messaging provider** is
+configured and `MOONA_PUSH_ENABLED=true`. So push waits on: (a) you finishing
+the provider/console setup, and (b) a decision from the app owner to take on the
+FCM/APNs dependency. Once the provider exists, the frontend work is
+`account.createPushTarget` registration + token lifecycle + tap deep-links
+(reusing the `moona://` scheme) — I'll pick that up as a focused follow-up. Your
+gated send-on-event points (`6a27ba5da1f0974bb1a2`) are ready for it.
+
+## Phase B shipped (frontend) — built against your local Phase-2 contract
+
+Picked up the next phase from `feature_plan.md`: **Phase 2 — event backbone +
+history features**. All four are now built on the frontend against the contract
+you implemented locally (per your 2026-06-09 feature-plan backend pass). It's
+wired to **degrade to nothing** until your `provision.dart` + `moonaApi`
+redeploy lands, so shipping the client ahead of the deploy is safe. `flutter
+analyze` (lib+test) clean, **63 tests pass** (added `test/phase_b_test.dart`,
++11).
+
+1. **Recent activity feed** — new pushed screen (`lib/features/activity/`),
+   reached from a Settings row. Calls **`getActivity { limit, cursor }`**,
+   paginates via `nextCursor` ("Load more"), resolves actor names from the
+   page's `profiles` map (falling back to the bootstrap `profiles` lookup), and
+   **live-refreshes** off a new `list_events` realtime subscription. I added
+   `list_events` to the client's subscribed channels
+   (`tablesdb.moona.tables.list_events.rows`) and a controller signal that
+   refetches the open feed on any event. Unknown `type` values render as nothing
+   (forward-compatible).
+2. **Buy Again** — a horizontal "shelf" of one-tap re-add chips above the list
+   (unfiltered view only). Renders from the compact **`suggestions.items`**
+   embedded in `getBootstrapData` (so it shows offline/instantly), and
+   `refreshSuggestions` pulls the full list from **`suggestItems { limit }`** on
+   demand. Tap → existing `createItem` (prefilled unit/category/brand/seller),
+   then the chip drops. Excludes products already on the active list client-side
+   too, so it stays correct the instant something is added or arrives via
+   realtime.
+3. **Staple reminders** — pure client UI on Phase-2 data: a suggestion is shown
+   as **"Due"** (tinted + badge, floated to the front) when your `dueScore >= 1`
+   **or** (fallback) `now - lastPurchasedAt >= avgIntervalDays`. No extra
+   backend beyond `suggestItems`.
+4. **Insights** — new pushed screen (`lib/features/insights/`) from a Settings
+   row. Calls **`getInsights { rangeDays }`** (fixed 90 for v1), rendering
+   totals, a most-bought bar list, a by-category breakdown, and a day-of-week
+   bar chart.
+
+### Two small shape confirmations for you
+- **`getInsights.byDayOfWeek`**: I render it as a length-7 array, **Sunday-first**
+  (index 0 = Sunday … 6 = Saturday). The client tolerates a wrong length, but
+  please emit Sunday-first so the day labels line up. `topProducts` entries I
+  read as `{ productId, productName, productNameAr?, productNameEn?, count }`
+  and `byCategory` as `{ categoryId, count }` — matching your documented shapes.
+- **`suggestItems` / `suggestions.items`**: I read `{ productId, productName,
+  productNameAr?, productNameEn?, unitId?, categoryId?, brand?, seller?,
+  purchaseCount, lastPurchasedAt?, avgIntervalDays?, dueScore? }`. All optional
+  fields tolerate omission.
+
+**Net Phase B ask: just the provision + redeploy** so these light up live. When
+that's deployed, drop the deployment id in `back_to_frontend.md` and I'll verify
+on-device. Phase 3 (backend-owned scratch undo, presence, push) is **not** built
+yet — that's the next phase after this deploy is verified.
+
+## Phase A shipped (frontend) — one backend ask: attribution enrichment
+
+Per the approved phased plan (`feature_plan.md`), Phase A is built on the
+frontend. Three of the four are **frontend-only, no backend change**; the fourth
+needs the small **Gate A** enrichment from you. `flutter analyze` (lib+test)
+clean, **52 tests pass** (added `test/phase_a_test.dart`).
+
+1. **Shop by seller** — *no backend change.* A secondary store-filter bar
+   (`sellerFilter` on `AppState`, applied after the category filter; only shown
+   when the current view spans 2+ stores). Reuses the existing `seller` field.
+2. **Store Mode** — *no backend change.* New focused in-store screen
+   (`lib/features/list/store_mode.dart`): category-grouped, big tap targets,
+   progress bar, keep-awake (`wakelock_plus`), check-off reuses the existing
+   scratch→trash flow.
+3. **Bulk paste** — *no backend change for v1.* "Paste a list" in the add sheet
+   splits lines and loops the existing `createItem` (dedupes input, skips
+   duplicates, caps at 50). If/when you want it, the optional `createItemsBatch`
+   from the plan would cut the N round-trips — **not requested yet.**
+4. **Item attribution** — ⏳ **needs Gate A (the one backend ask).** The frontend
+   already parses `createdByDisplayName` / `updatedByDisplayName` on list items
+   and renders an "added by / last edited by" caption in the **edit sheet** on
+   shared lists. It **degrades to nothing** until you enrich `getBootstrapData`
+   active items with those names (via the existing `profileLookup`, exactly like
+   `trashedByDisplayName`). Please keep the raw `createdByUserId`/
+   `updatedByUserId` too — the client falls back through the `profiles` map.
+   Once that deploy lands, attribution lights up with no further frontend change.
+
+**Net Phase A ask: just the attribution name enrichment on bootstrap.** When
+that's deployed, note the deployment id in `back_to_frontend.md` and I'll verify
+live. Then we move to Phase B (`list_events` backbone + activity feed).
+
+## Feature brainstorm — open for backend ideas + feasibility (frontend, 2026-06-09)
+
+Not a change request yet. The user asked both of us to dump our best feature
+ideas here first, then we'll discuss and pick together. Backend dev: please add
+your own ideas below this section (and react to / cost any of mine). I've split
+each by who carries the work so we can see the backend surface at a glance.
+
+### The framing insight: Trash is an untapped purchase log
+Every scratch-off lands in trash with `trashedAt` / `trashedByUserId` /
+`trashReason`. That's a complete timestamped buying history we currently discard.
+Three features fall out of it, all leaning on data you already store:
+
+1. **"Buy Again" shelf** — a one-tap re-add row of most-bought / recently-bought
+   items. *Backend:* a `getPurchaseHistory` action (frequency + recency
+   aggregation over trash), **or** fold a small `frequentItems` list into
+   `getBootstrapData`. *Frontend:* a chip/recents row + re-add.
+2. **Staple reminders** — detect cadence (e.g. milk ~every 5 days) and surface
+   "running low?" nudges. Same aggregation, plus a per-item interval estimate.
+3. **Insights** — "bought X 6× this month," most-frequent items, busiest day.
+   Cheap retention hook on the same data.
+
+**Q for backend:** is trash retained indefinitely, or does `clearTrash` /
+any TTL purge it? If trash is ephemeral, the history features need a separate
+durable purchase-log write on trash (a heads-up worth deciding early).
+
+### Shopping experience (highest daily-use payoff)
+4. **Shopping / Store Mode** — focused full-screen run: group by `category`
+   (already in schema), big tap targets, keep-screen-awake, progress ("4 of 11").
+   *Frontend-only.*
+5. **Shop-by-seller filter** — items already carry `seller`; a filter chip turns
+   the list into a per-store run. *Frontend-only.*
+6. **Estimated total / budget** — optional price per item, live sum.
+   *Backend:* one nullable `price` field on list items. *Frontend:* input + sum.
+
+### Faster input
+7. **Voice add** — speak "milk, two loaves of bread, eggs" → parsed rows.
+   *Frontend* (`speech_to_text`) + existing product matcher.
+8. **Bulk paste** — paste a recipe/text list, split lines into items.
+   *Frontend-only.*
+9. **Barcode scan** — scan to add/identify a product. *Backend:* a `barcode`
+   field on products + a lookup-by-barcode (could extend `searchProducts` or a
+   new action). *Frontend:* `mobile_scanner` (camera already wired for images).
+
+### Collaboration (we're a shared app — lean in)
+10. **Assign item to a viewer** — "Noor grabs the milk." *Backend:* a nullable
+    `assignedToUserId` on list items (+ enrich via the existing `profiles` map).
+    *Frontend:* avatar on the card + assign action.
+11. **"Someone's shopping now" presence** — a live indicator so two people don't
+    double-buy. *Backend:* a small presence flag/doc (or reuse realtime).
+    *Frontend:* banner + heartbeat.
+12. **Push notifications** — invite received, item added to a shared list,
+    "someone started shopping." Biggest *missing* primitive (no push today).
+    *Backend:* Appwrite Messaging + storing FCM/APNs push targets per user;
+    triggers on share + item events. *Frontend:* token registration + handlers.
+    Bigger joint lift, but it's what makes sharing feel alive.
+
+### Structure (heavier, later)
+13. **Multiple named lists** (Groceries / Pharmacy / Hardware). Powerful but the
+    heaviest change — touches schema, sharing, widget, and bootstrap. Flagging,
+    not proposing for now.
+14. **Saved templates** ("load my weekly staples") — can ride on the Buy-Again
+    data once #1 exists.
+
+**My top 3 to start (low backend cost, fast):** #1 Buy Again, #4 Shopping Mode,
+#7 Voice add. The only backend ask among them is the history aggregation for #1.
+Backend dev — add yours below and flag anything here that's cheaper/harder than I
+assumed.
 
 ## Offline-first launch + widget display fix — no backend change (frontend)
 

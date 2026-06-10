@@ -104,6 +104,7 @@ class AppStrings {
   String get myList => isArabic ? 'قائمتي' : 'My list';
   String get sharedListOf => isArabic ? 'قائمة' : 'list';
   String get allItems => isArabic ? 'كل الأصناف' : 'All items';
+  String get allStores => isArabic ? 'كل المتاجر' : 'All stores';
   String get addItem => isArabic ? 'إضافة صنف' : 'Add item';
   String get emptyTitle => isArabic ? 'القائمة فارغة' : 'Your list is empty';
   String get emptySub => isArabic
@@ -121,6 +122,35 @@ class AppStrings {
       : 'That item is already on the list';
   String get longPressHint =>
       isArabic ? 'اضغط مطولاً للتعديل' : 'Long-press to edit';
+
+  // presence ("someone is shopping now")
+  String someoneShoppingNow(String who) =>
+      isArabic ? '$who يتسوّق الآن' : '$who is shopping now';
+  String peopleShoppingNow(int n) =>
+      isArabic ? '$n أشخاص يتسوّقون الآن' : '$n people shopping now';
+
+  // store / shopping mode
+  String get storeMode => isArabic ? 'وضع التسوّق' : 'Shopping mode';
+  String storeModeOf(int done, int total) =>
+      isArabic ? '$done من $total' : '$done of $total';
+  String get storeModeTapHint =>
+      isArabic ? 'اضغط على الصنف عند وضعه في السلة' : 'Tap an item as you grab it';
+  String get storeModeDone => isArabic ? 'تم كل شيء!' : 'All done!';
+  String get storeModeDoneSub =>
+      isArabic ? 'كل الأصناف في السلة' : "Everything's in the cart";
+
+  // bulk paste
+  String get pasteList => isArabic ? 'لصق قائمة' : 'Paste a list';
+  String get pasteListTitle => isArabic ? 'لصق قائمة' : 'Paste a list';
+  String get pasteListHint =>
+      isArabic ? 'صنف واحد في كل سطر.' : 'One item per line.';
+  String get pasteListPlaceholder =>
+      isArabic ? 'حليب\nخبز\nبيض' : 'Milk\nBread\nEggs';
+  String get addAll => isArabic ? 'إضافة الكل' : 'Add all';
+  String addAllN(int n) => isArabic ? 'إضافة الكل ($n)' : 'Add all ($n)';
+  String itemsAdded(int n) =>
+      isArabic ? 'تمت إضافة $n صنف' : 'Added $n items';
+  String get nothingAdded => isArabic ? 'لا شيء لإضافته' : 'Nothing to add';
 
   // sorting + grouping
   String get sortBy => isArabic ? 'ترتيب حسب' : 'Sort by';
@@ -219,6 +249,61 @@ class AppStrings {
   // trash attribution (new)
   String scratchedBy(String who) =>
       isArabic ? 'شطبها $who' : 'Scratched by $who';
+
+  // item attribution (shared lists)
+  String addedBy(String who) => isArabic ? 'أضافه $who' : 'Added by $who';
+  String editedBy(String who) =>
+      isArabic ? 'آخر تعديل: $who' : 'Last edited by $who';
+
+  // buy again (Phase 2)
+  String get buyAgain => isArabic ? 'اشترِ مجدداً' : 'Buy again';
+  String get dueBadge => isArabic ? 'حان وقتها' : 'Due';
+
+  // activity feed (Phase 2)
+  String get activity => isArabic ? 'النشاط الأخير' : 'Recent activity';
+  String get activityEmpty => isArabic ? 'لا يوجد نشاط بعد' : 'No activity yet';
+  String get activityEmptySub => isArabic
+      ? 'ستظهر هنا تغييرات قائمتك وما يشطبه شركاؤك'
+      : 'Changes to your list and what your partners check off show up here';
+  String get loadMore => isArabic ? 'تحميل المزيد' : 'Load more';
+  String get retry => isArabic ? 'إعادة المحاولة' : 'Retry';
+
+  String actAdded(String who, String what) =>
+      isArabic ? '$who أضاف $what' : '$who added $what';
+  String actEdited(String who, String what) =>
+      isArabic ? '$who عدّل $what' : '$who edited $what';
+  String actScratched(String who, String what) =>
+      isArabic ? '$who شطب $what' : '$who checked off $what';
+  String actDeleted(String who, String what) =>
+      isArabic ? '$who حذف $what' : '$who removed $what';
+  String actRestored(String who, String what) =>
+      isArabic ? '$who استرجع $what' : '$who restored $what';
+  String actCleared(String who, int n) =>
+      isArabic ? '$who مسح $n من الأصناف' : '$who cleared $n items';
+  String actShareAccepted(String who) =>
+      isArabic ? '$who انضم إلى القائمة' : '$who joined the list';
+  String actShareRevoked(String who) =>
+      isArabic ? '$who غادر القائمة' : '$who left the list';
+
+  // insights (Phase 2)
+  String get insights => isArabic ? 'إحصاءات' : 'Insights';
+  String insLastDays(int n) => isArabic ? 'آخر $n يوم' : 'Last $n days';
+  String get insChecked => isArabic ? 'تم شطبها' : 'Checked off';
+  String get insDistinct => isArabic ? 'أصناف مختلفة' : 'Products';
+  String get insTopProducts => isArabic ? 'الأكثر شراءً' : 'Most bought';
+  String get insByCategory => isArabic ? 'حسب التصنيف' : 'By category';
+  String get insByDay => isArabic ? 'حسب أيام الأسبوع' : 'By day of week';
+  String get insEmpty =>
+      isArabic ? 'لا يوجد سجل كافٍ بعد' : 'Not enough history yet';
+  String get insEmptySub => isArabic
+      ? 'اشطب الأصناف عند شرائها لبناء إحصاءات تسوّقك'
+      : 'Check items off as you buy them to build your shopping insights';
+  String insTimes(int n) => isArabic ? '$n×' : '$n×';
+
+  /// Short weekday labels, Sunday-first (matches `Insights.byDayOfWeek`).
+  List<String> get daysOfWeekShort => isArabic
+      ? const ['أحد', 'إثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت']
+      : const ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   // generic errors
   String get genericError =>

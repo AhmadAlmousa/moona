@@ -36,10 +36,13 @@ class AppState {
     this.products = const [],
     this.sharing = SharingStatus.empty,
     this.profileNames = const {},
+    this.suggestions = const [],
     this.filter = 'all',
+    this.sellerFilter = 'all',
     this.sortKey = SortKey.name,
     this.grouped = false,
-    this.scratched = const {},
+    this.presence = const [],
+    this.activityRevision = 0,
   });
 
   final AppScreen screen;
@@ -57,14 +60,54 @@ class AppState {
   final List<Product> products;
   final SharingStatus sharing;
   final Map<String, String> profileNames;
+
+  /// "Buy again" suggestions from bootstrap / `suggestItems` (Phase 2).
+  final List<PurchaseSuggestion> suggestions;
   final String filter;
+
+  /// Secondary "shop by store" filter: 'all' or a specific seller name. Applied
+  /// on top of the category [filter] so the list can be narrowed to one store.
+  final String sellerFilter;
   final SortKey sortKey;
   final bool grouped;
 
-  /// Ids currently scratched (line-through with a running countdown).
-  final Set<String> scratched;
+  /// Live "shopping now" presence rows for the visible owner list (Phase 3).
+  /// Scratch state is no longer tracked here — it lives on each [ListItem]
+  /// (`scratchExpiresAt`), so it survives restarts and propagates via realtime.
+  final List<ShoppingPresence> presence;
+
+  /// Monotonic counter bumped on every `list_events` realtime change so an open
+  /// activity feed can refetch without holding its own subscription.
+  final int activityRevision;
 
   AppStrings get t => AppStrings.of(lang);
+
+  /// Presence rows for *other* people on the visible owner list — the input to
+  /// the "shopping now" banner. Freshness is applied by the banner (it ticks),
+  /// so a row lingering here until a realtime delete/refresh is harmless.
+  List<ShoppingPresence> get othersShopping {
+    final me = profile?.id;
+    return presence
+        .where((p) => p.actorId != me && (p.ownerId.isEmpty || p.ownerId == ownerId))
+        .toList();
+  }
+
+  /// Buy-Again suggestions still worth showing: those whose product isn't
+  /// already on the active list. (The backend excludes these too, but filtering
+  /// here keeps the row correct the instant a suggestion is added or an item
+  /// arrives via realtime.) Due staples float to the front.
+  List<PurchaseSuggestion> get buyAgain {
+    final active = {for (final i in items) i.productId};
+    final shown = suggestions
+        .where((s) => !active.contains(s.productId))
+        .toList();
+    shown.sort((a, b) {
+      final byDue = (b.isDue ? 1 : 0) - (a.isDue ? 1 : 0);
+      if (byDue != 0) return byDue;
+      return b.purchaseCount.compareTo(a.purchaseCount);
+    });
+    return shown;
+  }
 
   /// Resolves a user id to a display name using the bootstrap lookup, sharing
   /// counterparties, then a graceful fallback.
@@ -159,10 +202,45 @@ class AppState {
     return categories.where((c) => counts.containsKey(c.id)).toList();
   }
 
-  /// Active items honouring the category filter, before sort/group is applied.
-  List<ListItem> get _filteredItems => filter == 'all'
+  /// Active items honouring the category filter only (before the seller filter
+  /// and before sort/group).
+  List<ListItem> get _categoryFilteredItems => filter == 'all'
       ? items
       : items.where((i) => i.categoryId == filter).toList();
+
+  /// Item count of the current category view — the "All stores" chip count.
+  int get categoryFilteredCount => _categoryFilteredItems.length;
+
+  /// Distinct non-empty sellers in the current category view → item count.
+  Map<String, int> get sellerCounts {
+    final counts = <String, int>{};
+    for (final item in _categoryFilteredItems) {
+      final s = item.seller.trim();
+      if (s.isNotEmpty) counts[s] = (counts[s] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Stores present in the current category view, alphabetical.
+  List<String> get visibleSellers =>
+      sellerCounts.keys.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+  /// The active seller filter, ignored when its store is no longer present so a
+  /// stale selection never leaves the user staring at an empty list.
+  String get effectiveSellerFilter =>
+      sellerFilter != 'all' && sellerCounts.containsKey(sellerFilter)
+      ? sellerFilter
+      : 'all';
+
+  /// Active items honouring both the category and seller filters, before
+  /// sort/group is applied.
+  List<ListItem> get _filteredItems {
+    final byCategory = _categoryFilteredItems;
+    final seller = effectiveSellerFilter;
+    if (seller == 'all') return byCategory;
+    return byCategory.where((i) => i.seller.trim() == seller).toList();
+  }
 
   /// Flat list ordered by the active sort key (important pinned to the top),
   /// with original insertion order as a stable final tiebreak.
@@ -242,10 +320,13 @@ class AppState {
     List<Product>? products,
     SharingStatus? sharing,
     Map<String, String>? profileNames,
+    List<PurchaseSuggestion>? suggestions,
     String? filter,
+    String? sellerFilter,
     SortKey? sortKey,
     bool? grouped,
-    Set<String>? scratched,
+    List<ShoppingPresence>? presence,
+    int? activityRevision,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -265,10 +346,13 @@ class AppState {
       products: products ?? this.products,
       sharing: sharing ?? this.sharing,
       profileNames: profileNames ?? this.profileNames,
+      suggestions: suggestions ?? this.suggestions,
       filter: filter ?? this.filter,
+      sellerFilter: sellerFilter ?? this.sellerFilter,
       sortKey: sortKey ?? this.sortKey,
       grouped: grouped ?? this.grouped,
-      scratched: scratched ?? this.scratched,
+      presence: presence ?? this.presence,
+      activityRevision: activityRevision ?? this.activityRevision,
     );
   }
 

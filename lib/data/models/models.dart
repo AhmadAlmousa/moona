@@ -33,6 +33,12 @@ double _double(Map<String, dynamic> m, String key, [double fallback = 1]) {
   return double.tryParse(v?.toString() ?? '') ?? fallback;
 }
 
+int _int(Map<String, dynamic> m, String key, [int fallback = 0]) {
+  final v = m[key];
+  if (v is num) return v.toInt();
+  return int.tryParse(v?.toString() ?? '') ?? fallback;
+}
+
 DateTime? _date(Map<String, dynamic> m, String key) {
   final v = m[key];
   if (v == null) return null;
@@ -174,6 +180,13 @@ class ListItem {
     this.trashedByUserId,
     this.trashedByDisplayName,
     this.trashReason,
+    this.createdByUserId,
+    this.createdByDisplayName,
+    this.updatedByUserId,
+    this.updatedByDisplayName,
+    this.scratchedAt,
+    this.scratchExpiresAt,
+    this.scratchedByUserId,
   });
 
   final String id;
@@ -192,6 +205,29 @@ class ListItem {
   final String? trashedByUserId;
   final String? trashedByDisplayName;
   final String? trashReason;
+
+  /// Attribution (shared lists). The ids exist on the backend schema; the
+  /// display names are enriched into `getBootstrapData` (Phase A) — both stay
+  /// null until that deploy lands, so the UI simply shows nothing meanwhile.
+  final String? createdByUserId;
+  final String? createdByDisplayName;
+  final String? updatedByUserId;
+  final String? updatedByDisplayName;
+
+  /// Backend-owned scratch state (Phase 3). While [scratchExpiresAt] is set the
+  /// item is struck-through with a running countdown; the backend keeps
+  /// `status: active` until the window lapses, then finalizes it to trash. The
+  /// state lives on the row (not a client timer) so it survives restarts,
+  /// propagates to other viewers via realtime, and the widget can commit it even
+  /// if the app process is killed.
+  final DateTime? scratchedAt;
+  final DateTime? scratchExpiresAt;
+  final String? scratchedByUserId;
+
+  /// Whether this item is currently scratched (pending finalization). Derived
+  /// from the presence of [scratchExpiresAt] so it's consistent across the card,
+  /// store mode, the widget snapshot, and realtime echoes.
+  bool get isScratched => scratchExpiresAt != null;
 
   factory ListItem.fromJson(Map<String, dynamic> m) => ListItem(
     id: _docId(m),
@@ -212,9 +248,24 @@ class ListItem {
     trashedByUserId: _stringOrNull(m, 'trashedByUserId'),
     trashedByDisplayName: _stringOrNull(m, 'trashedByDisplayName'),
     trashReason: _stringOrNull(m, 'trashReason'),
+    createdByUserId: _stringOrNull(m, 'createdByUserId'),
+    createdByDisplayName: _stringOrNull(m, 'createdByDisplayName'),
+    updatedByUserId: _stringOrNull(m, 'updatedByUserId'),
+    updatedByDisplayName: _stringOrNull(m, 'updatedByDisplayName'),
+    scratchedAt: _date(m, 'scratchedAt'),
+    scratchExpiresAt: _date(m, 'scratchExpiresAt'),
+    scratchedByUserId: _stringOrNull(m, 'scratchedByUserId'),
   );
 
-  ListItem copyWith({ItemStatus? status}) => ListItem(
+  /// Copies the item, optionally changing [status] and the scratch fields. The
+  /// scratch fields use a sentinel so they can be both set and cleared (passing
+  /// `null` clears them; omitting them keeps the current value).
+  ListItem copyWith({
+    ItemStatus? status,
+    Object? scratchedAt = _unset,
+    Object? scratchExpiresAt = _unset,
+    Object? scratchedByUserId = _unset,
+  }) => ListItem(
     id: id,
     ownerId: ownerId,
     productId: productId,
@@ -231,8 +282,24 @@ class ListItem {
     trashedByUserId: trashedByUserId,
     trashedByDisplayName: trashedByDisplayName,
     trashReason: trashReason,
+    createdByUserId: createdByUserId,
+    createdByDisplayName: createdByDisplayName,
+    updatedByUserId: updatedByUserId,
+    updatedByDisplayName: updatedByDisplayName,
+    scratchedAt: scratchedAt == _unset
+        ? this.scratchedAt
+        : scratchedAt as DateTime?,
+    scratchExpiresAt: scratchExpiresAt == _unset
+        ? this.scratchExpiresAt
+        : scratchExpiresAt as DateTime?,
+    scratchedByUserId: scratchedByUserId == _unset
+        ? this.scratchedByUserId
+        : scratchedByUserId as String?,
   );
 }
+
+/// Sentinel for [ListItem.copyWith] so nullable scratch fields can be cleared.
+const Object _unset = Object();
 
 enum ShareStatus { pending, accepted, declined, revoked }
 
@@ -404,6 +471,42 @@ class ContactLookupResult {
   }
 }
 
+/// A live "someone is shopping now" row from `shopping_presence` (Phase 3).
+/// Keyed by [actorId] for the visible owner list; the client treats a heartbeat
+/// older than [_staleAfter] as gone (the writer refreshes ~every 30s).
+@immutable
+class ShoppingPresence {
+  const ShoppingPresence({
+    required this.ownerId,
+    required this.actorId,
+    this.actorDisplayName,
+    this.activeAt,
+  });
+
+  final String ownerId;
+  final String actorId;
+  final String? actorDisplayName;
+  final DateTime? activeAt;
+
+  static const Duration _staleAfter = Duration(seconds: 60);
+
+  /// Whether the heartbeat is recent enough to still show as "shopping now".
+  bool get isFresh {
+    final at = activeAt;
+    if (at == null) return false;
+    return DateTime.now().difference(at).abs() < _staleAfter;
+  }
+
+  factory ShoppingPresence.fromJson(Map<String, dynamic> m) => ShoppingPresence(
+    ownerId: _string(m, 'ownerId'),
+    actorId: _string(m, 'actorId'),
+    actorDisplayName:
+        _stringOrNull(m, 'actorDisplayName') ?? _stringOrNull(m, 'displayName'),
+    activeAt:
+        _date(m, 'activeAt') ?? _date(m, 'updatedAt') ?? _date(m, r'$updatedAt'),
+  );
+}
+
 @immutable
 class VisibleList {
   const VisibleList({
@@ -444,6 +547,8 @@ class BootstrapData {
     required this.products,
     required this.sharing,
     this.profileNames = const {},
+    this.suggestions = const [],
+    this.shoppingPresence = const [],
   });
 
   final Profile profile;
@@ -456,6 +561,15 @@ class BootstrapData {
   /// Optional userId → display name lookup (backend item 3/4). Empty until the
   /// backend includes it.
   final Map<String, String> profileNames;
+
+  /// Compact "Buy again" suggestions embedded in bootstrap (`suggestions.items`)
+  /// so the row renders on cached/offline launch. The full/refreshed list comes
+  /// from `suggestItems`. Empty until the backend deploy lands.
+  final List<PurchaseSuggestion> suggestions;
+
+  /// Live shopping-presence rows for the visible owner list (Phase 3). Empty
+  /// until the backend deploy lands / nobody is shopping.
+  final List<ShoppingPresence> shoppingPresence;
 
   factory BootstrapData.fromJson(Map<String, dynamic> m) {
     final catalogs = (m['catalogs'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -473,8 +587,25 @@ class BootstrapData {
             )
           : SharingStatus.empty,
       profileNames: _names(m['profiles']),
+      suggestions: _bootstrapSuggestions(m['suggestions']),
+      shoppingPresence: _mapList(
+        m['shoppingPresence'],
+        ShoppingPresence.fromJson,
+      ),
     );
   }
+}
+
+/// Parses the compact `suggestions.items` block bootstrap embeds. Tolerant of a
+/// missing key (returns empty) so older deployments degrade to no Buy-Again row.
+List<PurchaseSuggestion> _bootstrapSuggestions(dynamic raw) {
+  if (raw is! Map) return const [];
+  final items = raw['items'];
+  if (items is! List) return const [];
+  return items
+      .whereType<Map>()
+      .map((e) => PurchaseSuggestion.fromJson(e.cast<String, dynamic>()))
+      .toList();
 }
 
 Map<String, String> _names(dynamic raw) {
@@ -491,6 +622,290 @@ List<T> _mapList<T>(dynamic raw, T Function(Map<String, dynamic>) fromJson) {
       .whereType<Map>()
       .map((e) => fromJson(e.cast<String, dynamic>()))
       .toList();
+}
+
+/// A "Buy again" suggestion aggregated by the backend from finalized scratch
+/// (purchase) history (`suggestItems`, and a compact top-N embedded in
+/// bootstrap). Carries enough to prefill a `createItem`, plus cadence signals
+/// used to surface "due" staples client-side.
+@immutable
+class PurchaseSuggestion {
+  const PurchaseSuggestion({
+    required this.productId,
+    required this.productName,
+    this.productNameAr,
+    this.productNameEn,
+    this.unitId,
+    this.categoryId,
+    this.brand = '',
+    this.seller = '',
+    this.purchaseCount = 0,
+    this.lastPurchasedAt,
+    this.avgIntervalDays = 0,
+    this.dueScore = 0,
+  });
+
+  final String productId;
+  final String productName;
+  final String? productNameAr;
+  final String? productNameEn;
+  final String? unitId;
+  final String? categoryId;
+  final String brand;
+  final String seller;
+  final int purchaseCount;
+  final DateTime? lastPurchasedAt;
+
+  /// Estimated days between purchases (0 when unknown / too few data points).
+  final double avgIntervalDays;
+
+  /// Backend "due" score; >= 1 roughly means "you'd usually have re-bought by
+  /// now". The client also derives [isDue] from the interval as a fallback.
+  final double dueScore;
+
+  /// Name in the active language, falling back to [productName].
+  String label(String lang) {
+    final localized = lang == 'ar' ? productNameAr : productNameEn;
+    return (localized != null && localized.isNotEmpty)
+        ? localized
+        : productName;
+  }
+
+  /// Whether this staple is likely due for a re-buy: the backend `dueScore`
+  /// crossing 1, or (fallback) the time since the last purchase reaching the
+  /// estimated cadence.
+  bool get isDue {
+    if (dueScore >= 1) return true;
+    final last = lastPurchasedAt;
+    if (avgIntervalDays <= 0 || last == null) return false;
+    return DateTime.now().difference(last).inHours / 24 >= avgIntervalDays;
+  }
+
+  factory PurchaseSuggestion.fromJson(Map<String, dynamic> m) =>
+      PurchaseSuggestion(
+        productId: _string(m, 'productId'),
+        productName: _string(m, 'productName'),
+        productNameAr: _stringOrNull(m, 'productNameAr'),
+        productNameEn: _stringOrNull(m, 'productNameEn'),
+        unitId: _stringOrNull(m, 'unitId'),
+        categoryId: _stringOrNull(m, 'categoryId'),
+        brand: _string(m, 'brand'),
+        seller: _string(m, 'seller'),
+        purchaseCount: _int(m, 'purchaseCount'),
+        lastPurchasedAt: _date(m, 'lastPurchasedAt'),
+        avgIntervalDays: _double(m, 'avgIntervalDays', 0),
+        dueScore: _double(m, 'dueScore', 0),
+      );
+}
+
+/// Kinds of list activity (`list_events.type`). [other] guards forward
+/// compatibility if the backend adds a type the client doesn't know yet.
+enum ActivityType {
+  added,
+  edited,
+  scratched,
+  deleted,
+  restored,
+  cleared,
+  shareAccepted,
+  shareRevoked,
+  other,
+}
+
+ActivityType _activityType(String raw) => switch (raw) {
+  'added' => ActivityType.added,
+  'edited' => ActivityType.edited,
+  'scratched' => ActivityType.scratched,
+  'deleted' => ActivityType.deleted,
+  'restored' => ActivityType.restored,
+  'cleared' => ActivityType.cleared,
+  'share_accepted' => ActivityType.shareAccepted,
+  'share_revoked' => ActivityType.shareRevoked,
+  _ => ActivityType.other,
+};
+
+/// One row of the activity feed (`getActivity`). Product labels are snapshots
+/// taken at event time so a later catalog rename/merge doesn't rewrite history.
+@immutable
+class ActivityEvent {
+  const ActivityEvent({
+    required this.id,
+    required this.ownerId,
+    required this.actorId,
+    required this.type,
+    required this.createdAt,
+    this.actorDisplayName,
+    this.itemId,
+    this.productId,
+    this.productName = '',
+    this.productNameAr,
+    this.productNameEn,
+    this.count = 0,
+    this.categoryId,
+    this.clearedCount = 0,
+  });
+
+  final String id;
+  final String ownerId;
+  final String actorId;
+  final ActivityType type;
+  final DateTime? createdAt;
+  final String? actorDisplayName;
+  final String? itemId;
+  final String? productId;
+  final String productName;
+  final String? productNameAr;
+  final String? productNameEn;
+  final double count;
+  final String? categoryId;
+  final int clearedCount;
+
+  /// Product label in the active language, falling back to the snapshot name.
+  String label(String lang) {
+    final localized = lang == 'ar' ? productNameAr : productNameEn;
+    return (localized != null && localized.isNotEmpty)
+        ? localized
+        : productName;
+  }
+
+  factory ActivityEvent.fromJson(Map<String, dynamic> m) => ActivityEvent(
+    id: _docId(m),
+    ownerId: _string(m, 'ownerId'),
+    actorId: _string(m, 'actorId'),
+    type: _activityType(_string(m, 'type')),
+    createdAt: _date(m, 'createdAt') ?? _date(m, r'$createdAt'),
+    actorDisplayName: _stringOrNull(m, 'actorDisplayName'),
+    itemId: _stringOrNull(m, 'itemId'),
+    productId: _stringOrNull(m, 'productId'),
+    productName: _string(m, 'productName'),
+    productNameAr: _stringOrNull(m, 'productNameAr'),
+    productNameEn: _stringOrNull(m, 'productNameEn'),
+    count: _double(m, 'count', 0),
+    categoryId: _stringOrNull(m, 'categoryId'),
+    clearedCount: _int(m, 'clearedCount'),
+  );
+}
+
+/// A page of [ActivityEvent]s plus the cursor for the next page and an actor
+/// `userId → display name` lookup for names not embedded on the events.
+@immutable
+class ActivityFeedPage {
+  const ActivityFeedPage({
+    this.events = const [],
+    this.nextCursor = '',
+    this.profileNames = const {},
+  });
+
+  final List<ActivityEvent> events;
+  final String nextCursor;
+  final Map<String, String> profileNames;
+
+  bool get hasMore => nextCursor.isNotEmpty;
+
+  factory ActivityFeedPage.fromJson(Map<String, dynamic> m) {
+    final raw = m['events'];
+    return ActivityFeedPage(
+      events: raw is List
+          ? raw
+                .whereType<Map>()
+                .map((e) => ActivityEvent.fromJson(e.cast<String, dynamic>()))
+                .toList()
+          : const [],
+      nextCursor: _string(m, 'nextCursor'),
+      profileNames: _names(m['profiles']),
+    );
+  }
+}
+
+/// A product entry inside [Insights.topProducts] (snapshot-labelled).
+@immutable
+class InsightProduct {
+  const InsightProduct({
+    required this.productId,
+    required this.productName,
+    this.productNameAr,
+    this.productNameEn,
+    this.count = 0,
+  });
+
+  final String productId;
+  final String productName;
+  final String? productNameAr;
+  final String? productNameEn;
+  final int count;
+
+  String label(String lang) {
+    final localized = lang == 'ar' ? productNameAr : productNameEn;
+    return (localized != null && localized.isNotEmpty)
+        ? localized
+        : productName;
+  }
+
+  factory InsightProduct.fromJson(Map<String, dynamic> m) => InsightProduct(
+    productId: _string(m, 'productId'),
+    productName: _string(m, 'productName'),
+    productNameAr: _stringOrNull(m, 'productNameAr'),
+    productNameEn: _stringOrNull(m, 'productNameEn'),
+    count: _int(m, 'count'),
+  );
+}
+
+/// A `categoryId → count` entry inside [Insights.byCategory].
+@immutable
+class InsightCategory {
+  const InsightCategory({required this.categoryId, this.count = 0});
+
+  final String categoryId;
+  final int count;
+
+  factory InsightCategory.fromJson(Map<String, dynamic> m) => InsightCategory(
+    categoryId: _string(m, 'categoryId'),
+    count: _int(m, 'count'),
+  );
+}
+
+/// Aggregated buying stats over finalized scratch history (`getInsights`).
+@immutable
+class Insights {
+  const Insights({
+    this.rangeDays = 0,
+    this.totalChecked = 0,
+    this.distinctProducts = 0,
+    this.topProducts = const [],
+    this.byCategory = const [],
+    this.byDayOfWeek = const [0, 0, 0, 0, 0, 0, 0],
+  });
+
+  final int rangeDays;
+  final int totalChecked;
+  final int distinctProducts;
+  final List<InsightProduct> topProducts;
+  final List<InsightCategory> byCategory;
+
+  /// Counts indexed by weekday, Sunday-first (length 7).
+  final List<int> byDayOfWeek;
+
+  bool get isEmpty => totalChecked == 0;
+
+  static const empty = Insights();
+
+  factory Insights.fromJson(Map<String, dynamic> m) {
+    final dow = m['byDayOfWeek'];
+    final week = <int>[
+      for (var i = 0; i < 7; i++)
+        (dow is List && i < dow.length && dow[i] is num)
+            ? (dow[i] as num).toInt()
+            : 0,
+    ];
+    return Insights(
+      rangeDays: _int(m, 'rangeDays'),
+      totalChecked: _int(m, 'totalChecked'),
+      distinctProducts: _int(m, 'distinctProducts'),
+      topProducts: _mapList(m['topProducts'], InsightProduct.fromJson),
+      byCategory: _mapList(m['byCategory'], InsightCategory.fromJson),
+      byDayOfWeek: week,
+    );
+  }
 }
 
 /// Add/edit form payload sent to the repository.

@@ -14,6 +14,27 @@ void main() {
       expect(normalizePhone('+966501112233').digits, '966501112233');
     });
 
+    test('Saudi trunk zero after country code is dropped', () {
+      expect(normalizePhone('+966 050 111 2233').digits, '966501112233');
+      expect(normalizePhone('009660501112233').digits, '966501112233');
+      expect(normalizePhone('9660501112233').digits, '966501112233');
+    });
+
+    test('Arabic and Persian digit glyphs are mapped before normalization', () {
+      expect(
+        normalizePhone(
+          '\u0660\u0665\u0660 \u0661\u0661\u0661 \u0662\u0662\u0663\u0663',
+        ).digits,
+        '966501112233',
+      );
+      expect(
+        normalizePhone(
+          '\u06F0\u06F5\u06F0 \u06F1\u06F1\u06F1 \u06F2\u06F2\u06F3\u06F3',
+        ).digits,
+        '966501112233',
+      );
+    });
+
     test('00 international prefix is stripped', () {
       expect(normalizePhone('00966501112233').digits, '966501112233');
     });
@@ -48,7 +69,10 @@ void main() {
     });
 
     test('passes an explicit + international number through', () {
-      expect(composeInternationalPhone('966', '+971501112233'), '+971501112233');
+      expect(
+        composeInternationalPhone('966', '+971501112233'),
+        '+971501112233',
+      );
     });
 
     test('passes an explicit 00 international number through', () {

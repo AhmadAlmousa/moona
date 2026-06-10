@@ -15,7 +15,10 @@ import 'providers.dart';
 /// and realtime reconciliation. UI widgets read [AppState] and call these
 /// methods; optimistic updates keep the list responsive.
 class AppController extends Notifier<AppState> {
-  final Map<String, Timer> _scratchTimers = {};
+  /// Best-effort client-side finalize timers (one per in-progress scratch this
+  /// device initiated). The authoritative scratch state lives on the item
+  /// server-side, so a missed finalize self-heals via the backend's lazy sweep.
+  final Map<String, Timer> _finalizeTimers = {};
   StreamSubscription<RealtimeChange>? _realtimeSub;
   bool _disposed = false;
 
@@ -142,8 +145,10 @@ class AppController extends Notifier<AppState> {
       products: data.products,
       sharing: data.sharing,
       profileNames: data.profileNames,
+      suggestions: data.suggestions,
+      presence: data.shoppingPresence,
       filter: 'all',
-      scratched: const {},
+      sellerFilter: 'all',
     );
   }
 
@@ -181,6 +186,9 @@ class AppController extends Notifier<AppState> {
 
   void setFilter(String filter) => state = state.copyWith(filter: filter);
 
+  void setSellerFilter(String seller) =>
+      state = state.copyWith(sellerFilter: seller);
+
   void setSort(SortKey key) => state = state.copyWith(sortKey: key);
 
   void toggleGrouped() => state = state.copyWith(grouped: !state.grouped);
@@ -200,6 +208,93 @@ class AppController extends Notifier<AppState> {
     } catch (_) {
       _toast(state.t.genericError);
       return false;
+    }
+  }
+
+  /// Adds many items from pasted lines (one product name per entry). Skips
+  /// duplicates and per-line errors silently — a bad line shouldn't abort the
+  /// batch — and shows a single summary toast. Returns how many were added.
+  Future<int> addItemsBulk(List<String> names) async {
+    final categoryId = _defaultCategoryId();
+    var added = 0;
+    for (final raw in names) {
+      final name = raw.trim();
+      if (name.isEmpty) continue;
+      try {
+        final item = await _repo.addItem(
+          ItemFormData(productName: name, categoryId: categoryId),
+        );
+        state = state.copyWith(items: _upsertActiveItem(state.items, item));
+        added++;
+      } on MoonaException {
+        // Duplicate / invalid line — skip it rather than failing the whole paste.
+      } catch (_) {
+        // Network or unexpected — skip this line.
+      }
+    }
+    _toast(added > 0 ? state.t.itemsAdded(added) : state.t.nothingAdded);
+    return added;
+  }
+
+  /// Default category for new items — `grocery` when present, else the first.
+  String? _defaultCategoryId() {
+    for (final category in state.categories) {
+      if (category.id == 'grocery') return category.id;
+    }
+    return state.categories.isEmpty ? null : state.categories.first.id;
+  }
+
+  // ── buy again / suggestions ──────────────────────────────────────────────
+  /// One-tap re-add of a Buy-Again suggestion. Reuses [addItem] (so duplicates
+  /// and errors toast the same way) and drops the suggestion on success.
+  Future<bool> addSuggestion(PurchaseSuggestion suggestion) async {
+    final ok = await addItem(
+      ItemFormData(
+        productName: suggestion.productName,
+        unitId: suggestion.unitId,
+        categoryId: suggestion.categoryId ?? _defaultCategoryId(),
+        brand: suggestion.brand,
+        seller: suggestion.seller,
+      ),
+    );
+    if (ok) {
+      state = state.copyWith(
+        suggestions: state.suggestions
+            .where((s) => s.productId != suggestion.productId)
+            .toList(),
+      );
+    }
+    return ok;
+  }
+
+  /// Refreshes the Buy-Again list on demand (best-effort; leaves the cached
+  /// bootstrap suggestions in place on failure).
+  Future<void> refreshSuggestions() async {
+    try {
+      final suggestions = await _repo.suggestItems();
+      state = state.copyWith(suggestions: suggestions);
+    } catch (_) {
+      // Non-fatal — keep whatever bootstrap embedded.
+    }
+  }
+
+  // ── activity feed + insights ─────────────────────────────────────────────
+  /// Loads a page of the activity feed, or null on error (screen shows a
+  /// retry/empty state). Pass the previous page's `nextCursor` to page back.
+  Future<ActivityFeedPage?> loadActivity({String? cursor}) async {
+    try {
+      return await _repo.getActivity(cursor: cursor);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Loads aggregated insights for [rangeDays], or null on error.
+  Future<Insights?> loadInsights({int rangeDays = 90}) async {
+    try {
+      return await _repo.getInsights(rangeDays: rangeDays);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -236,35 +331,88 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  // ── scratch-to-delete ──────────────────────────────────────────────────
+  // ── scratch-to-delete (backend-owned) ───────────────────────────────────
+  /// A tap scratches the item (struck-through with a [MoonaConfig.scratchWindow]
+  /// countdown to undo), then finalizes it to trash. The scratch state lives on
+  /// the item server-side (`scratchExpiresAt`), so it survives restarts,
+  /// propagates to other viewers via realtime, and the widget commits it even if
+  /// the app process is killed. We still keep a client finalize timer for prompt
+  /// trashing; the backend's lazy sweep is the safety net if it doesn't fire.
   void toggleScratch(String itemId) {
-    if (state.scratched.contains(itemId)) {
-      _cancelScratch(itemId);
-      return;
-    }
-    state = state.copyWith(scratched: {...state.scratched, itemId});
-    _scratchTimers[itemId] = Timer(MoonaConfig.scratchWindow, () {
-      _commitScratch(itemId);
-    });
-  }
-
-  void _cancelScratch(String itemId) {
-    _scratchTimers.remove(itemId)?.cancel();
-    state = state.copyWith(scratched: {...state.scratched}..remove(itemId));
-  }
-
-  Future<void> _commitScratch(String itemId) async {
-    _scratchTimers.remove(itemId);
     final item = _activeById(itemId);
-    state = state.copyWith(scratched: {...state.scratched}..remove(itemId));
+    if (item == null) return;
+    if (item.isScratched) {
+      _undoScratch(itemId);
+    } else {
+      _beginScratch(item);
+    }
+  }
+
+  void _beginScratch(ListItem item) {
+    final now = DateTime.now();
+    _replaceActiveItem(
+      item.id,
+      (i) => i.copyWith(
+        scratchedAt: now,
+        scratchExpiresAt: now.add(MoonaConfig.scratchWindow),
+        scratchedByUserId: state.profile?.id,
+      ),
+    );
+    _finalizeTimers[item.id]?.cancel();
+    _finalizeTimers[item.id] = Timer(
+      MoonaConfig.scratchWindow,
+      () => _finalizeScratch(item.id),
+    );
+    unawaited(
+      _repo
+          .scratchItem(
+            item.id,
+            windowSeconds: MoonaConfig.scratchWindow.inSeconds,
+          )
+          .catchError((Object _) {
+            // Roll the optimistic scratch back on failure.
+            _finalizeTimers.remove(item.id)?.cancel();
+            _clearScratch(item.id);
+          }),
+    );
+  }
+
+  void _undoScratch(String itemId) {
+    _finalizeTimers.remove(itemId)?.cancel();
+    _clearScratch(itemId);
+    unawaited(_repo.undoScratchItem(itemId).catchError((Object _) => refresh()));
+  }
+
+  Future<void> _finalizeScratch(String itemId) async {
+    _finalizeTimers.remove(itemId);
+    final item = _activeById(itemId);
     if (item == null) return;
     _applyTrash(item);
     _toast(state.t.removed);
     try {
-      await _repo.trashItem(itemId, reason: 'scratch_timer');
+      await _repo.finalizeScratch(itemId);
     } catch (_) {
       await refresh();
     }
+  }
+
+  /// Clears the optimistic scratch fields on a still-active item.
+  void _clearScratch(String itemId) => _replaceActiveItem(
+    itemId,
+    (i) => i.copyWith(
+      scratchedAt: null,
+      scratchExpiresAt: null,
+      scratchedByUserId: null,
+    ),
+  );
+
+  void _replaceActiveItem(String itemId, ListItem Function(ListItem) update) {
+    state = state.copyWith(
+      items: [
+        for (final i in state.items)
+          if (i.id == itemId) update(i) else i,
+      ],
+    );
   }
 
   ListItem? _activeById(String id) {
@@ -424,6 +572,17 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  // ── presence ─────────────────────────────────────────────────────────────
+  /// Sets/clears this device's "shopping now" presence (heartbeated by Store
+  /// Mode). Best-effort: presence is a nicety, never blocks the UI.
+  Future<void> setShoppingPresence(bool active) async {
+    try {
+      await _repo.setShoppingPresence(active: active);
+    } catch (_) {
+      // Best-effort.
+    }
+  }
+
   // ── realtime ────────────────────────────────────────────────────────────
   void _subscribeRealtime() {
     _realtimeSub?.cancel();
@@ -441,7 +600,29 @@ class AppController extends Notifier<AppState> {
       case MoonaCollections.units:
       case MoonaCollections.products:
         refresh();
+      case MoonaCollections.listEvents:
+        // Signal an open activity feed to refetch; the list itself reconciles
+        // via the `list_items` channel, so nothing else to do here.
+        state = state.copyWith(activityRevision: state.activityRevision + 1);
+      case MoonaCollections.shoppingPresence:
+        _reconcilePresence(change);
     }
+  }
+
+  /// Patches the live presence list from a `shopping_presence` realtime row
+  /// instead of re-bootstrapping on every ~30s heartbeat.
+  void _reconcilePresence(RealtimeChange change) {
+    final ShoppingPresence row;
+    try {
+      row = ShoppingPresence.fromJson(change.payload);
+    } catch (_) {
+      return;
+    }
+    if (row.actorId.isEmpty) return;
+    if (row.ownerId.isNotEmpty && row.ownerId != state.ownerId) return;
+    final others = state.presence.where((p) => p.actorId != row.actorId).toList();
+    if (change.type != RealtimeChangeType.delete) others.add(row);
+    state = state.copyWith(presence: others);
   }
 
   void _reconcileListItem(RealtimeChange change) {
@@ -484,10 +665,10 @@ class AppController extends Notifier<AppState> {
   };
 
   void _cancelEverything() {
-    for (final timer in _scratchTimers.values) {
+    for (final timer in _finalizeTimers.values) {
       timer.cancel();
     }
-    _scratchTimers.clear();
+    _finalizeTimers.clear();
     _realtimeSub?.cancel();
     _realtimeSub = null;
   }

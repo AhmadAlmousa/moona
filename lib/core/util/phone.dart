@@ -28,7 +28,7 @@ NormalizedPhone normalizePhone(
   String input, {
   String defaultCountryCode = '966',
 }) {
-  final raw = input.trim();
+  final raw = _asciiDigits(input).trim();
   if (raw.isEmpty) throw const InvalidPhoneException();
 
   var digits = raw.replaceAll(RegExp(r'\D'), '');
@@ -41,6 +41,10 @@ NormalizedPhone normalizePhone(
   } else if (!digits.startsWith(defaultCountryCode) && digits.length <= 10) {
     digits = '$defaultCountryCode$digits';
   }
+  digits = _stripNationalTrunkAfterCountryCode(
+    digits,
+    defaultCountryCode: defaultCountryCode,
+  );
 
   if (digits.length < 8 || digits.length > 15) {
     throw const InvalidPhoneException();
@@ -51,6 +55,29 @@ NormalizedPhone normalizePhone(
     e164: '+$digits',
     aliasEmail: 'phone-$digits@${MoonaConfig.aliasEmailDomain}',
   );
+}
+
+String _stripNationalTrunkAfterCountryCode(
+  String digits, {
+  required String defaultCountryCode,
+}) {
+  final trunkPrefix = '${defaultCountryCode}0';
+  if (!digits.startsWith(trunkPrefix)) return digits;
+  return '$defaultCountryCode${digits.substring(trunkPrefix.length)}';
+}
+
+String _asciiDigits(String value) {
+  final buffer = StringBuffer();
+  for (final rune in value.runes) {
+    if (rune >= 0x0660 && rune <= 0x0669) {
+      buffer.writeCharCode(0x30 + rune - 0x0660);
+    } else if (rune >= 0x06F0 && rune <= 0x06F9) {
+      buffer.writeCharCode(0x30 + rune - 0x06F0);
+    } else {
+      buffer.writeCharCode(rune);
+    }
+  }
+  return buffer.toString();
 }
 
 /// Combines a country [dialCode] (digits only, e.g. `966`) chosen from the

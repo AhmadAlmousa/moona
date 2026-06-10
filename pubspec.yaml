@@ -65,6 +65,9 @@ dependencies:
   # Promoted from transitive: used directly by the offline bootstrap cache
   # (lib/data/cache/bootstrap_cache.dart writes to the app documents dir).
   path_provider: ^2.1.5
+  # Keeps the screen awake during in-store "Shopping mode" so the list stays
+  # visible while the user shops; released when leaving the screen.
+  wakelock_plus: ^1.2.8
 
 dev_dependencies:
   flutter_test:

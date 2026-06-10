@@ -8,11 +8,13 @@ import '../../core/theme/moona_colors.dart';
 import '../../data/models/models.dart';
 import '../../shared/widgets/widgets.dart';
 import '../sharing/contact_picker.dart';
+import '../sharing/presence_banner.dart';
 import '../sharing/settings_sheet.dart';
 import '../trash/trash_sheet.dart';
 import 'item_card.dart';
 import 'item_form.dart';
 import 'sort_sheet.dart';
+import 'store_mode.dart';
 
 /// The working shopping list — the app's primary screen.
 class MainScreen extends ConsumerWidget {
@@ -66,15 +68,36 @@ class MainScreen extends ConsumerWidget {
                       : null,
                   trashCount: state.trash.length,
                   sharingActive: sharingActive,
-                  grouped: state.grouped,
                   settingsBusy: state.busy,
+                  hasItems: state.items.isNotEmpty,
                   shareTooltip: t.shareList,
-                  onSort: () => showSortSheet(context),
+                  storeModeTooltip: t.storeMode,
+                  onStoreMode: () => showStoreMode(context),
                   onTrash: () => showTrashSheet(context),
                   onShare: () => showContactFlow(context, ref),
                   onSettings: () => showSettingsSheet(context),
                 ),
+                const PresenceBanner(),
                 _CategoryBar(state: state, onSelect: controller.setFilter),
+                if (state.visibleSellers.length >= 2)
+                  _SellerBar(
+                    state: state,
+                    onSelect: controller.setSellerFilter,
+                  ),
+                if (state.items.isNotEmpty)
+                  _SortBar(
+                    label: _sortLabel(t, state.sortKey),
+                    grouped: state.grouped,
+                    onTap: () => showSortSheet(context),
+                  ),
+                if (state.filter == 'all' && state.buyAgain.isNotEmpty)
+                  _BuyAgainBar(
+                    suggestions: state.buyAgain,
+                    lang: state.lang,
+                    label: t.buyAgain,
+                    dueLabel: t.dueBadge,
+                    onAdd: (s) => controller.addSuggestion(s),
+                  ),
                 Expanded(
                   child: items.isEmpty
                       ? _EmptyState(
@@ -226,10 +249,11 @@ class _Header extends StatelessWidget {
     required this.ownerLine,
     required this.trashCount,
     required this.sharingActive,
-    required this.grouped,
     required this.settingsBusy,
+    required this.hasItems,
     required this.shareTooltip,
-    required this.onSort,
+    required this.storeModeTooltip,
+    required this.onStoreMode,
     required this.onTrash,
     required this.onShare,
     required this.onSettings,
@@ -239,10 +263,11 @@ class _Header extends StatelessWidget {
   final String? ownerLine;
   final int trashCount;
   final bool sharingActive;
-  final bool grouped;
   final bool settingsBusy;
+  final bool hasItems;
   final String shareTooltip;
-  final VoidCallback onSort;
+  final String storeModeTooltip;
+  final VoidCallback onStoreMode;
   final VoidCallback onTrash;
   final VoidCallback onShare;
   final VoidCallback onSettings;
@@ -291,13 +316,14 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
-          MoonaIconButton(
-            icon: 'sort',
-            size: 20,
-            dim: true,
-            badge: grouped,
-            onPressed: onSort,
-          ),
+          if (hasItems)
+            MoonaIconButton(
+              icon: 'store',
+              size: 20,
+              dim: true,
+              tooltip: storeModeTooltip,
+              onPressed: onStoreMode,
+            ),
           MoonaIconButton(
             icon: 'trash',
             size: 20,
@@ -358,6 +384,263 @@ class _CategoryBar extends StatelessWidget {
               onTap: () => onSelect(category.id),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Secondary "shop by store" filter bar — only shown when the current view has
+/// items from two or more stores. Mirrors [_CategoryBar] but filters by seller.
+class _SellerBar extends StatelessWidget {
+  const _SellerBar({required this.state, required this.onSelect});
+
+  final AppState state;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = state.t;
+    final counts = state.sellerCounts;
+    final selected = state.effectiveSellerFilter;
+    return SizedBox(
+      height: 50,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+        children: [
+          CategoryChip(
+            label: t.allStores,
+            emoji: '🏪',
+            count: state.categoryFilteredCount,
+            selected: selected == 'all',
+            onTap: () => onSelect('all'),
+          ),
+          for (final seller in state.visibleSellers) ...[
+            const SizedBox(width: 9),
+            CategoryChip(
+              label: seller,
+              count: counts[seller] ?? 0,
+              selected: selected == seller,
+              onTap: () => onSelect(seller),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Horizontal "Buy again" shelf of one-tap re-add chips, shown above the list
+/// (unfiltered view only). Due staples are tinted and lead with a small dot.
+class _BuyAgainBar extends StatelessWidget {
+  const _BuyAgainBar({
+    required this.suggestions,
+    required this.lang,
+    required this.label,
+    required this.dueLabel,
+    required this.onAdd,
+  });
+
+  final List<PurchaseSuggestion> suggestions;
+  final String lang;
+  final String label;
+  final String dueLabel;
+  final ValueChanged<PurchaseSuggestion> onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsetsDirectional.only(start: 18, end: 18),
+          children: [
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 10, top: 9),
+              child: Row(
+                children: [
+                  MoonaIcon('undo', size: 15, color: c.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: c.onSurfaceVariant,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final s in suggestions) ...[
+              _SuggestionChip(
+                label: s.label(lang),
+                due: s.isDue,
+                dueLabel: dueLabel,
+                onTap: () => onAdd(s),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionChip extends StatelessWidget {
+  const _SuggestionChip({
+    required this.label,
+    required this.due,
+    required this.dueLabel,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool due;
+  final String dueLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: due ? c.primaryContainer : Colors.transparent,
+      shape: StadiumBorder(
+        side: due
+            ? BorderSide.none
+            : BorderSide(color: c.outlineVariant, width: 1.4),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsetsDirectional.only(start: 12, end: 14),
+          child: SizedBox(
+            height: 38,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MoonaIcon(
+                  'plus',
+                  size: 16,
+                  color: due ? c.onPrimaryContainer : c.primary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: due ? c.onPrimaryContainer : c.onSurface,
+                  ),
+                ),
+                if (due) ...[
+                  const SizedBox(width: 7),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.primary,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Text(
+                      dueLabel,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                        color: c.onPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _sortLabel(AppStrings t, SortKey key) => switch (key) {
+  SortKey.name => t.sortName,
+  SortKey.category => t.category,
+  SortKey.brand => t.brand,
+  SortKey.store => t.seller,
+};
+
+/// Compact sort/group control pinned just above the working list (moved here
+/// from the header to keep the header uncrowded). Carries the grouped badge and
+/// opens the existing sort sheet.
+class _SortBar extends StatelessWidget {
+  const _SortBar({
+    required this.label,
+    required this.grouped,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool grouped;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 18, end: 14, bottom: 6),
+      child: Row(
+        children: [
+          const Spacer(),
+          Material(
+            color: Colors.transparent,
+            shape: StadiumBorder(
+              side: BorderSide(color: c.outlineVariant, width: 1.3),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 13),
+                child: SizedBox(
+                  height: 34,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      MoonaIcon('sort', size: 16, color: c.onSurfaceVariant),
+                      const SizedBox(width: 7),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: c.onSurface,
+                        ),
+                      ),
+                      if (grouped) ...[
+                        const SizedBox(width: 7),
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: c.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -56,6 +56,17 @@ class MoonaFunctions {
   static const String unlinkShare = 'unlinkShare';
   static const String getSharingStatus = 'getSharingStatus';
   static const String createImageViewToken = 'createImageViewToken';
+
+  // Phase 2 — event backbone + history features.
+  static const String getActivity = 'getActivity';
+  static const String suggestItems = 'suggestItems';
+  static const String getInsights = 'getInsights';
+
+  // Phase 3 — backend-owned scratch undo + presence.
+  static const String scratchItem = 'scratchItem';
+  static const String undoScratchItem = 'undoScratchItem';
+  static const String finalizeScratch = 'finalizeScratch';
+  static const String setShoppingPresence = 'setShoppingPresence';
 }
 
 /// Appwrite collection ids, used to build realtime channel names.
@@ -68,6 +79,8 @@ class MoonaCollections {
   static const String products = 'products';
   static const String listItems = 'list_items';
   static const String shares = 'shares';
+  static const String listEvents = 'list_events';
+  static const String shoppingPresence = 'shopping_presence';
 
   static const List<String> all = [
     profiles,
@@ -76,5 +89,7 @@ class MoonaCollections {
     products,
     listItems,
     shares,
+    listEvents,
+    shoppingPresence,
   ];
 }

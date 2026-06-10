@@ -101,6 +101,18 @@ abstract class MoonaRepository {
 
   Future<void> trashItem(String itemId, {String reason = 'scratch_timer'});
 
+  /// Backend-owned scratch (Phase 3). Marks the item scratched with a server
+  /// expiry window (`scratchExpiresAt`); the item stays active until finalized.
+  Future<void> scratchItem(String itemId, {int? windowSeconds});
+
+  /// Clears a scratch before its window lapses (the Undo tap). If the window has
+  /// already expired the backend finalizes it instead.
+  Future<void> undoScratchItem(String itemId);
+
+  /// Moves an expired scratch to trash (`scratch_timer`) and writes the purchase
+  /// event. Best-effort from the client; the backend also finalizes lazily.
+  Future<void> finalizeScratch(String itemId, {bool force = false});
+
   Future<void> restoreTrashItem(String itemId);
 
   Future<void> clearTrash();
@@ -116,6 +128,21 @@ abstract class MoonaRepository {
   });
 
   Future<SharingStatus> getSharingStatus();
+
+  /// Paginated activity feed for the visible owner list (`list_events`). Pass
+  /// the previous page's `nextCursor` to page further back.
+  Future<ActivityFeedPage> getActivity({int limit, String? cursor});
+
+  /// "Buy again" suggestions aggregated from finalized scratch history,
+  /// excluding products already on the active list (backend-side).
+  Future<List<PurchaseSuggestion>> suggestItems({int limit});
+
+  /// Aggregated buying insights over the visible owner list's scratch history.
+  Future<Insights> getInsights({int rangeDays});
+
+  /// Sets or clears the caller's "shopping now" presence for the visible owner
+  /// list (Phase 3). Best-effort; heartbeated by the client while in Store Mode.
+  Future<void> setShoppingPresence({required bool active});
 
   /// Uploads an item image and returns its stable file id, or null on failure.
   Future<String?> uploadImage({

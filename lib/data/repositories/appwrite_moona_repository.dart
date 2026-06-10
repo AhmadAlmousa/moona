@@ -159,6 +159,22 @@ class AppwriteMoonaRepository implements MoonaRepository {
       _call(MoonaFunctions.trashItem, {'itemId': itemId, 'reason': reason});
 
   @override
+  Future<void> scratchItem(String itemId, {int? windowSeconds}) => _call(
+    MoonaFunctions.scratchItem,
+    {'itemId': itemId, 'windowSeconds': ?windowSeconds},
+  );
+
+  @override
+  Future<void> undoScratchItem(String itemId) =>
+      _call(MoonaFunctions.undoScratchItem, {'itemId': itemId});
+
+  @override
+  Future<void> finalizeScratch(String itemId, {bool force = false}) => _call(
+    MoonaFunctions.finalizeScratch,
+    {'itemId': itemId, 'force': force},
+  );
+
+  @override
   Future<void> restoreTrashItem(String itemId) =>
       _call(MoonaFunctions.restoreTrashItem, {'itemId': itemId});
 
@@ -206,6 +222,38 @@ class AppwriteMoonaRepository implements MoonaRepository {
     final data = await _call(MoonaFunctions.getSharingStatus, {});
     return SharingStatus.fromJson(_asMap(data['sharing']));
   }
+
+  @override
+  Future<ActivityFeedPage> getActivity({int limit = 50, String? cursor}) async {
+    final data = await _call(MoonaFunctions.getActivity, {
+      'limit': limit,
+      'cursor': cursor ?? '',
+    });
+    return ActivityFeedPage.fromJson(_asMap(data));
+  }
+
+  @override
+  Future<List<PurchaseSuggestion>> suggestItems({int limit = 20}) async {
+    final data = await _call(MoonaFunctions.suggestItems, {'limit': limit});
+    final raw = data['suggestions'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => PurchaseSuggestion.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  @override
+  Future<Insights> getInsights({int rangeDays = 90}) async {
+    final data = await _call(MoonaFunctions.getInsights, {
+      'rangeDays': rangeDays,
+    });
+    return Insights.fromJson(_asMap(data['insights']));
+  }
+
+  @override
+  Future<void> setShoppingPresence({required bool active}) =>
+      _call(MoonaFunctions.setShoppingPresence, {'active': active});
 
   @override
   Future<String?> uploadImage({

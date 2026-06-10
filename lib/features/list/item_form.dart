@@ -5,11 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../app/app_state.dart';
 import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
 import '../../core/util/format.dart';
 import '../../data/models/models.dart';
 import '../../shared/widgets/widgets.dart';
+
+/// Most items a single paste can add at once (keeps the batch sane).
+const int _maxBulkItems = 50;
 
 /// Opens the add/edit item bottom sheet.
 Future<void> showItemForm(
@@ -22,6 +26,17 @@ Future<void> showItemForm(
     context: context,
     title: editing == null ? t.addTitle : t.editTitle,
     builder: (_) => _ItemForm(editing: editing),
+  );
+}
+
+/// Opens the "paste a list" sheet (one item per line, added in bulk). Returns
+/// the number of items added, or null if dismissed.
+Future<int?> showBulkPasteSheet(BuildContext context, WidgetRef ref) {
+  final t = ref.read(appControllerProvider).t;
+  return showMoonaSheet<int>(
+    context: context,
+    title: t.pasteListTitle,
+    builder: (_) => const _BulkPasteForm(),
   );
 }
 
@@ -200,16 +215,77 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
     ref.read(appControllerProvider.notifier).deleteItem(id);
   }
 
+  /// A muted "added by / last edited by" caption shown when editing an item on a
+  /// shared list. Returns null (renders nothing) until a real name is available
+  /// — e.g. before the Phase-A backend enrichment deploy — so raw ids never leak.
+  Widget? _attributionLine(BuildContext context, AppState state) {
+    final item = widget.editing;
+    if (item == null || !state.isShared) return null;
+
+    String? resolve(String? name, String? userId) {
+      if (name != null && name.isNotEmpty) return name;
+      if (userId != null) {
+        final mapped = state.profileNames[userId];
+        if (mapped != null && mapped.isNotEmpty) return mapped;
+      }
+      return null;
+    }
+
+    final added = resolve(item.createdByDisplayName, item.createdByUserId);
+    final editor = resolve(item.updatedByDisplayName, item.updatedByUserId);
+    final lines = <String>[
+      if (added != null) state.t.addedBy(added),
+      if (editor != null && item.updatedByUserId != item.createdByUserId)
+        state.t.editedBy(editor),
+    ];
+    if (lines.isEmpty) return null;
+
+    final c = context.c;
+    return Row(
+      children: [
+        MoonaIcon('person', size: 13, color: c.onSurfaceVariant),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            lines.join('  ·  '),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: c.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final state = ref.watch(appControllerProvider);
     final t = state.t;
     final lang = state.lang;
+    final attribution = _attributionLine(context, state);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (widget.editing == null)
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: MoonaButton(
+              label: t.pasteList,
+              icon: 'list',
+              variant: MoonaButtonVariant.text,
+              height: 34,
+              onPressed: () async {
+                final added = await showBulkPasteSheet(context, ref);
+                if (added != null && added > 0 && context.mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+            ),
+          ),
         _NameField(
           controller: _name,
           label: t.productName,
@@ -365,6 +441,10 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
           }),
         ),
         const SizedBox(height: 22),
+        if (attribution != null) ...[
+          attribution,
+          const SizedBox(height: 16),
+        ],
         Row(
           children: [
             if (widget.editing != null) ...[
@@ -385,6 +465,93 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
               ),
             ),
           ],
+        ),
+        if (_busy) ...[
+          const SizedBox(height: 14),
+          const Center(child: CircularProgressIndicator()),
+        ],
+      ],
+    );
+  }
+}
+
+/// The "paste a list" sheet body: a multiline field where each line becomes an
+/// item. Parses + dedupes lines, caps at [_maxBulkItems], and adds them in bulk.
+class _BulkPasteForm extends ConsumerStatefulWidget {
+  const _BulkPasteForm();
+
+  @override
+  ConsumerState<_BulkPasteForm> createState() => _BulkPasteFormState();
+}
+
+class _BulkPasteFormState extends ConsumerState<_BulkPasteForm> {
+  final TextEditingController _text = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  /// Distinct, trimmed, non-empty lines (case-insensitive dedupe), capped.
+  List<String> _parse() {
+    final seen = <String>{};
+    final names = <String>[];
+    for (final raw in _text.text.split('\n')) {
+      final name = raw.trim();
+      if (name.isEmpty) continue;
+      if (seen.add(name.toLowerCase())) names.add(name);
+      if (names.length >= _maxBulkItems) break;
+    }
+    return names;
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final names = _parse();
+    if (names.isEmpty) {
+      Navigator.of(context).pop(0);
+      return;
+    }
+    setState(() => _busy = true);
+    final added = await ref
+        .read(appControllerProvider.notifier)
+        .addItemsBulk(names);
+    if (!mounted) return;
+    Navigator.of(context).pop(added);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final t = ref.watch(appControllerProvider).t;
+    final count = _parse().length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          t.pasteListHint,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: c.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        MoonaField(
+          controller: _text,
+          placeholder: t.pasteListPlaceholder,
+          autofocus: true,
+          minLines: 6,
+          maxLines: 12,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 18),
+        MoonaButton(
+          label: count > 0 ? t.addAllN(count) : t.addAll,
+          full: true,
+          onPressed: (_busy || count == 0) ? null : _submit,
         ),
         if (_busy) ...[
           const SizedBox(height: 14),

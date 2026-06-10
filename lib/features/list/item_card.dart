@@ -29,7 +29,7 @@ class ItemCard extends ConsumerWidget {
     final state = ref.watch(appControllerProvider);
     final controller = ref.read(appControllerProvider.notifier);
     final lang = state.lang;
-    final scratched = state.scratched.contains(item.id);
+    final scratched = item.isScratched;
     final important = item.important && !scratched;
     final category = state.categoryById(item.categoryId);
     final unit = state.unitById(item.unitId);
@@ -148,10 +148,10 @@ class ItemCard extends ConsumerWidget {
                 ),
               ),
               if (scratched)
-                const Positioned.fill(
+                Positioned.fill(
                   child: Align(
                     alignment: Alignment.bottomCenter,
-                    child: _CountdownBar(),
+                    child: _CountdownBar(expiresAt: item.scratchExpiresAt),
                   ),
                 ),
             ],
@@ -309,9 +309,13 @@ class _UndoButton extends StatelessWidget {
   }
 }
 
-/// Animated 3px countdown bar shown while an item is scratched.
+/// Animated 3px countdown bar shown while an item is scratched. Derives its
+/// remaining time from the backend's [expiresAt] so a viewer who joins mid-
+/// scratch (or after a restart) sees the correct slice rather than a fresh 10s.
 class _CountdownBar extends StatefulWidget {
-  const _CountdownBar();
+  const _CountdownBar({required this.expiresAt});
+
+  final DateTime? expiresAt;
 
   @override
   State<_CountdownBar> createState() => _CountdownBarState();
@@ -319,10 +323,22 @@ class _CountdownBar extends StatefulWidget {
 
 class _CountdownBarState extends State<_CountdownBar>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: MoonaConfig.scratchWindow,
-  )..forward();
+  late final double _startFraction;
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    const total = MoonaConfig.scratchWindow;
+    final remaining =
+        widget.expiresAt?.difference(DateTime.now()) ?? total;
+    final clamped = remaining.isNegative ? Duration.zero : remaining;
+    _startFraction = (clamped.inMilliseconds / total.inMilliseconds).clamp(
+      0.0,
+      1.0,
+    );
+    _controller = AnimationController(vsync: this, duration: clamped)..forward();
+  }
 
   @override
   void dispose() {
@@ -337,7 +353,7 @@ class _CountdownBarState extends State<_CountdownBar>
       animation: _controller,
       builder: (context, _) => FractionallySizedBox(
         alignment: AlignmentDirectional.centerStart,
-        widthFactor: 1 - _controller.value,
+        widthFactor: _startFraction * (1 - _controller.value),
         child: Container(height: 3, color: c.primary),
       ),
     );

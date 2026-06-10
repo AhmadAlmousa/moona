@@ -5,11 +5,15 @@
 /// widget (renders it), and a background Dart isolate (handles taps while the
 /// app is closed). All three agree on the keys + URI scheme defined here.
 ///
-/// The check-off mirrors [AppController]'s scratch-to-delete: a tap marks the
-/// item struck-through with an Undo window, then commits `trashItem` after
-/// [MoonaConfig.scratchWindow]. Because each tap runs as a *separate* background
-/// invocation, the cancellation source of truth is the shared store (a
-/// `scratchedAt` stamp), not an in-memory timer.
+/// The check-off mirrors [AppController]'s backend-owned scratch: a tap commits
+/// `scratchItem` server-side *immediately* (so a killed process can no longer
+/// revert the check-off — the backend owns the window + finalization), then
+/// marks the item struck-through with an Undo affordance. Because each tap runs
+/// as a *separate* background invocation, the cancellation source of truth is
+/// the shared store (a `scratchedAt` stamp), not an in-memory timer. Undo calls
+/// `undoScratchItem`; after the window the snapshot row is dropped and a
+/// best-effort `finalizeScratch` runs (the backend's lazy sweep is the safety
+/// net if this isolate dies first).
 library;
 
 import 'dart:async';
@@ -23,6 +27,7 @@ import '../../core/config.dart';
 import '../../core/util/format.dart';
 import '../../data/models/models.dart';
 import '../../data/repositories/appwrite_moona_repository.dart';
+import '../../data/repositories/moona_repository.dart';
 
 /// Shared keys, the Android provider name, and the interactivity URI scheme.
 class MoonaWidget {
@@ -82,7 +87,7 @@ Map<String, dynamic> buildWidgetPayload(AppState s) {
           'brand': item.brand,
           'store': item.seller,
           'count': _countLabel(s, item),
-          'scratched': s.scratched.contains(item.id),
+          'scratched': item.isScratched,
         },
     ],
   };
@@ -146,12 +151,21 @@ Future<void> moonaWidgetInteraction(Uri? uri) async {
   }
 }
 
-/// Marks [id] struck-through, then commits the trash after the scratch window
-/// unless an Undo (or another change) cancelled it in the meantime.
+/// Commits the scratch server-side immediately, marks [id] struck-through, then
+/// after the window drops it from the snapshot (best-effort finalize) unless an
+/// Undo (or another change) cancelled it in the meantime.
 Future<void> _scratch(String id) async {
   final payload = await _readPayload();
   final item = _findItem(payload, id);
   if (item == null || item['scratched'] == true) return;
+
+  // Commit the scratch up front so the check-off is durable even if this
+  // isolate is killed before the window elapses (the backend owns finalization).
+  final committed = await _runRepo(
+    (repo) =>
+        repo.scratchItem(id, windowSeconds: MoonaConfig.scratchWindow.inSeconds),
+  );
+  if (!committed) return; // No session / error — leave the row untouched.
 
   final stamp = DateTime.now().millisecondsSinceEpoch;
   item['scratched'] = true;
@@ -161,7 +175,7 @@ Future<void> _scratch(String id) async {
 
   await Future<void>.delayed(MoonaConfig.scratchWindow);
 
-  // Re-read: only commit if still scratched with the same stamp (i.e. not
+  // Re-read: only finalize if still scratched with the same stamp (i.e. not
   // undone, re-scratched, or already gone).
   final after = await _readPayload();
   final current = _findItem(after, id);
@@ -170,18 +184,17 @@ Future<void> _scratch(String id) async {
       current['scratchedAt'] != stamp) {
     return;
   }
-  final committed = await _commitTrash(id);
-  if (!committed) return; // Leave it; self-heals when the app next opens.
-
-  final latest = await _readPayload();
-  final items = _items(latest);
-  items.removeWhere((e) => e['id'] == id);
-  latest['items'] = items;
-  await _writePayload(latest);
+  // Best-effort: prompt the trash + drop from the snapshot. If this isolate dies
+  // first the backend still finalizes lazily and the next app open re-syncs.
+  await _runRepo((repo) => repo.finalizeScratch(id));
+  final items = _items(after)..removeWhere((e) => e['id'] == id);
+  after['items'] = items;
+  await _writePayload(after);
   await _refreshWidget();
 }
 
 /// Cancels a pending scratch for [id] (the Undo tap on a struck-through row).
+/// The scratch was committed server-side on tap, so this must clear it there too.
 Future<void> _undo(String id) async {
   final payload = await _readPayload();
   final item = _findItem(payload, id);
@@ -190,20 +203,31 @@ Future<void> _undo(String id) async {
   item.remove('scratchedAt');
   await _writePayload(payload);
   await _refreshWidget();
+  await _runRepo((repo) => repo.undoScratchItem(id));
 }
 
-/// Commits the trash via a fresh Appwrite repo, reusing the persisted session
-/// (path_provider is auto-registered in the background engine, so the cookie
-/// jar loads). Returns false on no-session / error so the caller can defer.
-Future<bool> _commitTrash(String id) async {
+/// Runs [action] against a fresh repo that reuses the persisted Appwrite session
+/// (path_provider is auto-registered in the background engine, so the cookie jar
+/// loads). Returns false on no-session / error so callers can defer. Overridable
+/// in tests via [debugWidgetRepoRunner] so the background path stays network-free.
+typedef WidgetRepoAction = Future<void> Function(MoonaRepository repo);
+
+Future<bool> _runRepo(WidgetRepoAction action) =>
+    (debugWidgetRepoRunner ?? _liveRepoRunner)(action);
+
+/// Test seam: when set, [_runRepo] uses this instead of a live Appwrite repo.
+@visibleForTesting
+Future<bool> Function(WidgetRepoAction action)? debugWidgetRepoRunner;
+
+Future<bool> _liveRepoRunner(WidgetRepoAction action) async {
   if (!MoonaConfig.hasLiveBackend) return false;
   final repo = AppwriteMoonaRepository();
   try {
     if (!await repo.restoreSession()) return false;
-    await repo.trashItem(id, reason: 'scratch_timer');
+    await action(repo);
     return true;
   } catch (e) {
-    debugPrint('Moona widget trash commit failed ($id): $e');
+    debugPrint('Moona widget repo action failed: $e');
     return false;
   } finally {
     repo.dispose();

@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
 import '../../shared/widgets/widgets.dart';
+import '../activity/activity_screen.dart';
+import '../insights/insights_screen.dart';
 import 'contact_picker.dart';
 
 /// Opens the Settings sheet (account, language/theme, sharing, logout).
@@ -76,6 +78,18 @@ class _SettingsContent extends ConsumerWidget {
               _SharingBlock(onShare: () => showContactFlow(context, ref)),
             ],
           ),
+        const SizedBox(height: 22),
+        _NavRow(
+          icon: 'list',
+          label: t.activity,
+          onTap: () => _openScreen(context, const ActivityScreen()),
+        ),
+        const SizedBox(height: 9),
+        _NavRow(
+          icon: 'sort',
+          label: t.insights,
+          onTap: () => _openScreen(context, const InsightsScreen()),
+        ),
         const SizedBox(height: 22),
         MoonaSection(
           title: t.settings,
@@ -150,6 +164,48 @@ class _SettingsContent extends ConsumerWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+/// Closes the settings sheet, then pushes [screen] on the app navigator. The
+/// navigator is captured before the pop so the reference stays valid.
+void _openScreen(BuildContext context, Widget screen) {
+  final navigator = Navigator.of(context);
+  navigator.pop();
+  navigator.push(MaterialPageRoute(builder: (_) => screen));
+}
+
+/// A tappable settings row: leading icon, label, trailing chevron.
+class _NavRow extends StatelessWidget {
+  const _NavRow({required this.icon, required this.label, required this.onTap});
+
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return MoonaRow(
+      onTap: onTap,
+      child: Row(
+        children: [
+          MoonaIcon(icon, size: 22, color: c.onSurfaceVariant),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w800,
+                color: c.onSurface,
+              ),
+            ),
+          ),
+          MoonaIcon('chevron', size: 18, color: c.onSurfaceVariant),
+        ],
+      ),
     );
   }
 }

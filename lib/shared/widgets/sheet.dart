@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/moona_colors.dart';
@@ -36,9 +38,14 @@ class _SheetScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final mq = MediaQuery.of(context);
+    // `useSafeArea: true` only guards top/left/right (SafeArea(bottom: false)),
+    // so the bottom is on us: clear the Android nav bar (viewPadding.bottom) or
+    // the keyboard (viewInsets.bottom), whichever is taller — they don't stack
+    // since an open keyboard already covers the nav bar.
     return Padding(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
+        bottom: math.max(mq.viewInsets.bottom, mq.viewPadding.bottom),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

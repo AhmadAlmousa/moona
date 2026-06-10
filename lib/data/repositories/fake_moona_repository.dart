@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
 
+import '../../core/config.dart';
 import '../../core/util/phone.dart';
 import '../models/models.dart';
 import 'moona_repository.dart';
@@ -320,6 +321,7 @@ class FakeMoonaRepository implements MoonaRepository {
       products: List.of(_products),
       sharing: _sharingStatus(),
       profileNames: _profileNames,
+      suggestions: _suggestionsFor(owner),
     );
   }
 
@@ -494,6 +496,37 @@ class FakeMoonaRepository implements MoonaRepository {
   }
 
   @override
+  Future<void> scratchItem(String itemId, {int? windowSeconds}) async {
+    final list = _active[_ownerId]!;
+    final index = list.indexWhere((i) => i.id == itemId);
+    if (index < 0) return;
+    final now = DateTime.now();
+    list[index] = list[index].copyWith(
+      scratchedAt: now,
+      scratchExpiresAt: now.add(
+        Duration(seconds: windowSeconds ?? MoonaConfig.scratchWindow.inSeconds),
+      ),
+      scratchedByUserId: _me.id,
+    );
+  }
+
+  @override
+  Future<void> undoScratchItem(String itemId) async {
+    final list = _active[_ownerId]!;
+    final index = list.indexWhere((i) => i.id == itemId);
+    if (index < 0) return;
+    list[index] = list[index].copyWith(
+      scratchedAt: null,
+      scratchExpiresAt: null,
+      scratchedByUserId: null,
+    );
+  }
+
+  @override
+  Future<void> finalizeScratch(String itemId, {bool force = false}) =>
+      trashItem(itemId, reason: 'scratch_timer');
+
+  @override
   Future<void> restoreTrashItem(String itemId) async {
     final owner = _ownerId;
     final trash = _trash[owner]!;
@@ -579,6 +612,152 @@ class FakeMoonaRepository implements MoonaRepository {
 
   @override
   Future<SharingStatus> getSharingStatus() async => _sharingStatus();
+
+  Product? _productById(String id) =>
+      _products.where((p) => p.id == id).firstOrNull;
+
+  /// Finalized scratch history (the purchase signal) for [owner].
+  List<ListItem> _scratchHistory(String owner) => (_trash[owner] ?? const [])
+      .where((i) => i.trashReason == 'scratch_timer')
+      .toList();
+
+  @override
+  Future<ActivityFeedPage> getActivity({int limit = 50, String? cursor}) async {
+    await _delay();
+    final owner = _ownerId;
+    final trash = List.of(_trash[owner] ?? const <ListItem>[])
+      ..sort((a, b) {
+        final at = a.trashedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bt = b.trashedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return bt.compareTo(at);
+      });
+    final events = <ActivityEvent>[];
+    for (final item in trash.take(limit)) {
+      final product = _productById(item.productId);
+      events.add(
+        ActivityEvent(
+          id: 'ev-${item.id}',
+          ownerId: owner,
+          actorId: item.trashedByUserId ?? owner,
+          actorDisplayName: item.trashedByDisplayName,
+          type: item.trashReason == 'scratch_timer'
+              ? ActivityType.scratched
+              : ActivityType.deleted,
+          createdAt: item.trashedAt,
+          itemId: item.id,
+          productId: item.productId,
+          productName: product?.displayName ?? '',
+          productNameAr: product?.nameAr,
+          productNameEn: product?.nameEn,
+          count: item.count,
+          categoryId: item.categoryId,
+        ),
+      );
+    }
+    return ActivityFeedPage(events: events, profileNames: _profileNames);
+  }
+
+  @override
+  Future<List<PurchaseSuggestion>> suggestItems({int limit = 20}) async {
+    await _delay();
+    return _suggestionsFor(_ownerId).take(limit).toList();
+  }
+
+  /// Aggregates scratch history into Buy-Again suggestions, excluding products
+  /// already on the active list (mirrors the live backend's exclusion).
+  List<PurchaseSuggestion> _suggestionsFor(String owner) {
+    final active = {for (final i in _active[owner] ?? const []) i.productId};
+    final byProduct = <String, List<ListItem>>{};
+    for (final h in _scratchHistory(owner)) {
+      if (active.contains(h.productId)) continue;
+      byProduct.putIfAbsent(h.productId, () => []).add(h);
+    }
+    final suggestions = <PurchaseSuggestion>[];
+    byProduct.forEach((productId, rows) {
+      final product = _productById(productId);
+      if (product == null) return;
+      final times = rows
+          .map((r) => r.trashedAt)
+          .whereType<DateTime>()
+          .toList()
+        ..sort();
+      final last = times.isEmpty ? null : times.last;
+      final avgInterval = times.length >= 2
+          ? times.last.difference(times.first).inHours /
+                24 /
+                (times.length - 1)
+          : 0.0;
+      final recent = rows.last;
+      suggestions.add(
+        PurchaseSuggestion(
+          productId: productId,
+          productName: product.displayName,
+          productNameAr: product.nameAr,
+          productNameEn: product.nameEn,
+          unitId: recent.unitId,
+          categoryId: recent.categoryId,
+          brand: recent.brand,
+          seller: recent.seller,
+          purchaseCount: rows.length,
+          lastPurchasedAt: last,
+          avgIntervalDays: avgInterval,
+        ),
+      );
+    });
+    suggestions.sort((a, b) {
+      final byCount = b.purchaseCount.compareTo(a.purchaseCount);
+      if (byCount != 0) return byCount;
+      final at = a.lastPurchasedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bt = b.lastPurchasedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bt.compareTo(at);
+    });
+    return suggestions;
+  }
+
+  @override
+  Future<Insights> getInsights({int rangeDays = 90}) async {
+    await _delay();
+    final history = _scratchHistory(_ownerId);
+    final byProduct = <String, int>{};
+    final byCategory = <String, int>{};
+    final byDay = <int>[0, 0, 0, 0, 0, 0, 0];
+    for (final h in history) {
+      byProduct[h.productId] = (byProduct[h.productId] ?? 0) + 1;
+      final cat = h.categoryId;
+      if (cat != null) byCategory[cat] = (byCategory[cat] ?? 0) + 1;
+      final at = h.trashedAt;
+      if (at != null) byDay[at.weekday % 7]++; // DateTime: Sun==7 → index 0.
+    }
+    final topProducts =
+        byProduct.entries.map((e) {
+          final product = _productById(e.key);
+          return InsightProduct(
+            productId: e.key,
+            productName: product?.displayName ?? '',
+            productNameAr: product?.nameAr,
+            productNameEn: product?.nameEn,
+            count: e.value,
+          );
+        }).toList()..sort((a, b) => b.count.compareTo(a.count));
+    final categories =
+        byCategory.entries
+            .map((e) => InsightCategory(categoryId: e.key, count: e.value))
+            .toList()
+          ..sort((a, b) => b.count.compareTo(a.count));
+    return Insights(
+      rangeDays: rangeDays,
+      totalChecked: history.length,
+      distinctProducts: byProduct.length,
+      topProducts: topProducts,
+      byCategory: categories,
+      byDayOfWeek: byDay,
+    );
+  }
+
+  @override
+  Future<void> setShoppingPresence({required bool active}) async {
+    // Single-client simulation: no peers ever appear, so presence is a no-op.
+  }
 
   SharingStatus _sharingStatus() {
     final outgoing = _shares

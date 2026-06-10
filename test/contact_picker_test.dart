@@ -43,6 +43,27 @@ void main() {
       expect(rows.last.registered, isFalse);
     });
 
+    test('matches contacts saved with a trunk zero after the country code', () {
+      final rows = buildContactPickerRows(
+        const [ContactPickerDeviceContact('Saved Omar', '+966 050 765 4321')],
+        const ContactLookupResult(
+          contacts: [
+            ContactLookupEntry(
+              phone: '+966507654321',
+              phoneDigits: '966507654321',
+              registered: true,
+              displayName: 'Omar',
+            ),
+          ],
+        ),
+      );
+
+      expect(rows, hasLength(1));
+      expect(rows.single.name, 'Saved Omar');
+      expect(rows.single.phoneDigits, '966507654321');
+      expect(rows.single.registered, isTrue);
+    });
+
     test(
       'appends registered lookup entries that do not match a device row',
       () {

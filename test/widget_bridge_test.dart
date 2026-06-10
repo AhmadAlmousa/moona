@@ -42,20 +42,25 @@ void main() {
       bool dark = false,
       Set<String> scratched = const {},
       String filter = 'all',
-    }) => AppState(
-      screen: AppScreen.main,
-      lang: lang,
-      dark: dark,
-      products: products,
-      units: units,
-      items: [
-        item('i1', 'p_bread'),
-        item('i2', 'p_apple', important: true, count: 2, brand: 'Acme', seller: 'Mart'),
-        item('i3', 'p_milk', count: 1.5, unitId: 'u_btl'),
-      ],
-      scratched: scratched,
-      filter: filter,
-    );
+    }) {
+      final expiry = DateTime.now().add(const Duration(seconds: 10));
+      ListItem mark(ListItem it) =>
+          scratched.contains(it.id) ? it.copyWith(scratchExpiresAt: expiry) : it;
+      return AppState(
+        screen: AppScreen.main,
+        lang: lang,
+        dark: dark,
+        products: products,
+        units: units,
+        items: [
+          mark(item('i1', 'p_bread')),
+          mark(item('i2', 'p_apple',
+              important: true, count: 2, brand: 'Acme', seller: 'Mart')),
+          mark(item('i3', 'p_milk', count: 1.5, unitId: 'u_btl')),
+        ],
+        filter: filter,
+      );
+    }
 
     test('pins important first, then alphabetical, with localized fields', () {
       final p = buildWidgetPayload(state());
@@ -111,10 +116,18 @@ void main() {
     const channel = MethodChannel('home_widget');
     late Map<String, Object?> store;
     late int updates;
+    late bool repoCalled;
 
     setUp(() {
       store = {};
       updates = 0;
+      repoCalled = false;
+      // Keep the background-isolate path network-free: stub the repo runner so
+      // it never instantiates a live Appwrite client during tests.
+      debugWidgetRepoRunner = (_) async {
+        repoCalled = true;
+        return true;
+      };
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (call) async {
             final args = call.arguments as Map?;
@@ -133,6 +146,7 @@ void main() {
     });
 
     tearDown(() {
+      debugWidgetRepoRunner = null;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
     });
@@ -145,7 +159,7 @@ void main() {
       expect(updates, 2);
     });
 
-    test('undo clears the scratched flag for the item', () async {
+    test('undo clears the scratched flag and commits undo server-side', () async {
       store[MoonaWidget.payloadKey] = jsonEncode({
         'items': [
           {'id': 'i1', 'name': 'Bread', 'scratched': true, 'scratchedAt': 123},
@@ -163,6 +177,8 @@ void main() {
       expect(i1['scratched'], false);
       expect(i1.containsKey('scratchedAt'), false);
       expect(updates, greaterThanOrEqualTo(1));
+      // Backend-owned scratch: undo must clear it server-side, not just locally.
+      expect(repoCalled, isTrue);
     });
   });
 }
