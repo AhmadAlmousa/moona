@@ -224,10 +224,12 @@ class ListItem {
   final DateTime? scratchExpiresAt;
   final String? scratchedByUserId;
 
-  /// Whether this item is currently scratched (pending finalization). Derived
-  /// from the presence of [scratchExpiresAt] so it's consistent across the card,
-  /// store mode, the widget snapshot, and realtime echoes.
-  bool get isScratched => scratchExpiresAt != null;
+  /// Whether this item is currently scratched (pending finalization). True only
+  /// when [scratchExpiresAt] is set AND still in the future — items whose
+  /// scratch window has already passed are treated as non-scratched on the
+  /// client, preventing stale server fields from showing a spurious strike-through
+  /// after a restore or a Buy-Again re-add.
+  bool get isScratched => scratchExpiresAt?.isAfter(DateTime.now()) ?? false;
 
   factory ListItem.fromJson(Map<String, dynamic> m) => ListItem(
     id: _docId(m),

@@ -4,7 +4,49 @@ This file carries contract changes, missing fields, blockers, and mockup-driven
 API needs discovered during Flutter/Riverpod implementation. The backend dev
 replies in `back_to_frontend.md`.
 
-Last updated: 2026-06-10 (frontend — Web/PWA push wired; needs a Web push provider + VAPID)
+Last updated: 2026-06-11 (frontend — scratch restore + Buy Again bug traced to stale server fields; backend fix needed)
+
+## Scratch fields not cleared on server — causes restore + Buy-Again bug (frontend, 2026-06-11)
+
+Two user-visible bugs traced to the same root cause: `scratchedAt` /
+`scratchExpiresAt` / `scratchedByUserId` are **not cleared on the server row**
+when an item is finalized or restored.
+
+### What the bugs look like
+- **Restore from trash**: tapping Restore brought the item back as scratched
+  (struck-through + Undo button) and it then auto-deleted after ~10s.
+- **Buy Again re-add**: tapping a suggestion from the Buy Again dropdown added
+  the item, but it appeared scratched immediately and then auto-deleted.
+
+### Root cause
+`finalizeScratch` on the server sets `status: "trash"` but leaves
+`scratchedAt` / `scratchExpiresAt` / `scratchedByUserId` on the row. When the
+item is later restored (or re-created from the same underlying row), the client
+receives an active item with a past `scratchExpiresAt`. The backend's lazy
+finalize sweep then picks it up, sees the expiry already passed, and moves it
+back to trash — causing the "auto-delete" the user sees.
+
+### Frontend mitigations shipped (2026-06-11)
+1. **`isScratched` now checks future expiry**: `scratchExpiresAt?.isAfter(DateTime.now()) ?? false`. Items with a stale past `scratchExpiresAt` no longer render as scratched client-side.
+2. **`restoreItem` clears scratch fields in the optimistic update**: the
+   optimistic restored item explicitly has `scratchedAt/scratchExpiresAt/scratchedByUserId = null`, so it appears as a clean active item even before the server responds.
+3. Same fix applied to `fake_moona_repository.restoreTrashItem`.
+
+These mitigations suppress the visible bug on the client, but the **backend
+still needs to clear the scratch fields on the actual row**:
+
+### Backend asks (2 changes, same root cause)
+1. **`finalizeScratch`** — after moving the item to `status: "trash"`, clear
+   `scratchedAt`, `scratchExpiresAt`, and `scratchedByUserId` on the row
+   (set them to null). Currently the row is trashed with the scratch fields
+   still present.
+2. **`restoreTrashItem`** — when restoring an item to `status: "active"`,
+   clear the same three fields. Without this, the lazy-finalize sweep will
+   immediately re-trash the just-restored item if the expiry is in the past.
+
+No new action or schema change needed — just `null`-out those three fields in
+both operations. Once done, the client-side mitigations become belt-and-braces
+rather than the primary fix.
 
 ## Web/PWA push — wired on the frontend; needs ONE backend gate: a Web push provider (frontend, 2026-06-10)
 

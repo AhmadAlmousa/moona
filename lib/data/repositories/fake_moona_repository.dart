@@ -533,7 +533,12 @@ class FakeMoonaRepository implements MoonaRepository {
     final index = trash.indexWhere((i) => i.id == itemId);
     if (index < 0) return;
     final item = trash.removeAt(index);
-    _active[owner]!.add(item.copyWith(status: ItemStatus.active));
+    _active[owner]!.add(item.copyWith(
+      status: ItemStatus.active,
+      scratchedAt: null,
+      scratchExpiresAt: null,
+      scratchedByUserId: null,
+    ));
   }
 
   @override

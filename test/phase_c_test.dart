@@ -36,7 +36,10 @@ void main() {
     test('isScratched is derived from scratchExpiresAt', () {
       expect(_active('a').isScratched, isFalse);
       expect(
-        _active('a', scratchExpiresAt: DateTime.now()).isScratched,
+        _active(
+          'a',
+          scratchExpiresAt: DateTime.now().add(const Duration(seconds: 10)),
+        ).isScratched,
         isTrue,
       );
     });

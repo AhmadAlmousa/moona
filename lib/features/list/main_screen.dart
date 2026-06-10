@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -27,8 +29,6 @@ class MainScreen extends ConsumerWidget {
     final controller = ref.read(appControllerProvider.notifier);
     final t = state.t;
     final items = state.visibleItems;
-    // Grouping by category already labels each section, so the per-card badge
-    // would be redundant there.
     final showBadge =
         state.filter == 'all' &&
         !(state.grouped && state.sortKey == SortKey.category);
@@ -78,32 +78,18 @@ class MainScreen extends ConsumerWidget {
                   onSettings: () => showSettingsSheet(context),
                 ),
                 const PresenceBanner(),
-                _CategoryBar(state: state, onSelect: controller.setFilter),
-                if (state.visibleSellers.length >= 2)
-                  _SellerBar(
-                    state: state,
-                    onSelect: controller.setSellerFilter,
-                  ),
-                if (state.items.isNotEmpty)
-                  _SortBar(
-                    label: _sortLabel(t, state.sortKey),
-                    grouped: state.grouped,
-                    onTap: () => showSortSheet(context),
-                  ),
-                if (state.filter == 'all' && state.buyAgain.isNotEmpty)
-                  _BuyAgainBar(
-                    suggestions: state.buyAgain,
-                    lang: state.lang,
-                    label: t.buyAgain,
-                    dueLabel: t.dueBadge,
-                    onAdd: (s) => controller.addSuggestion(s),
-                  ),
+                _FilterSortBar(
+                  state: state,
+                  onCategory: controller.setFilter,
+                  onStore: controller.setSellerFilter,
+                  onBuyAgainAdd: controller.addSuggestion,
+                  onSort: () => showSortSheet(context),
+                ),
                 Expanded(
                   child: items.isEmpty
                       ? _EmptyState(
                           t: t,
                           filtered: state.filter != 'all',
-                          onAdd: () => showItemForm(context, ref),
                         )
                       : ListView.builder(
                           padding: EdgeInsets.fromLTRB(
@@ -157,6 +143,14 @@ class MainScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            // Curved arrow guiding new users to the FAB — shown only on a
+            // genuinely empty list (no items at all, no active filter).
+            if (state.items.isEmpty && state.filter == 'all')
+              PositionedDirectional(
+                bottom: 88 + bottomInset,
+                end: 14,
+                child: const _GuidingArrow(),
+              ),
             PositionedDirectional(
               bottom: 22 + bottomInset,
               end: 20,
@@ -352,219 +346,61 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _CategoryBar extends StatelessWidget {
-  const _CategoryBar({required this.state, required this.onSelect});
+// ── Filter + Sort bar ──────────────────────────────────────────────────────
 
-  final AppState state;
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = state.t;
-    final counts = state.categoryCounts;
-    return SizedBox(
-      height: 56,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
-        children: [
-          CategoryChip(
-            label: t.allItems,
-            count: state.items.length,
-            selected: state.filter == 'all',
-            onTap: () => onSelect('all'),
-          ),
-          for (final category in state.visibleCategories) ...[
-            const SizedBox(width: 9),
-            CategoryChip(
-              label: category.label(state.lang),
-              emoji: category.emoji,
-              count: counts[category.id] ?? 0,
-              selected: state.filter == category.id,
-              onTap: () => onSelect(category.id),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Secondary "shop by store" filter bar — only shown when the current view has
-/// items from two or more stores. Mirrors [_CategoryBar] but filters by seller.
-class _SellerBar extends StatelessWidget {
-  const _SellerBar({required this.state, required this.onSelect});
-
-  final AppState state;
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = state.t;
-    final counts = state.sellerCounts;
-    final selected = state.effectiveSellerFilter;
-    return SizedBox(
-      height: 50,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-        children: [
-          CategoryChip(
-            label: t.allStores,
-            emoji: '🏪',
-            count: state.categoryFilteredCount,
-            selected: selected == 'all',
-            onTap: () => onSelect('all'),
-          ),
-          for (final seller in state.visibleSellers) ...[
-            const SizedBox(width: 9),
-            CategoryChip(
-              label: seller,
-              count: counts[seller] ?? 0,
-              selected: selected == seller,
-              onTap: () => onSelect(seller),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Horizontal "Buy again" shelf of one-tap re-add chips, shown above the list
-/// (unfiltered view only). Due staples are tinted and lead with a small dot.
-class _BuyAgainBar extends StatelessWidget {
-  const _BuyAgainBar({
-    required this.suggestions,
-    required this.lang,
-    required this.label,
-    required this.dueLabel,
-    required this.onAdd,
+/// Single-row bar containing compact dropdown pills for category, store, and
+/// buy-again filters, plus the sort pill on the right. Replaces the separate
+/// `_CategoryBar`, `_SellerBar`, `_BuyAgainBar`, and `_SortBar` widgets.
+class _FilterSortBar extends StatelessWidget {
+  const _FilterSortBar({
+    required this.state,
+    required this.onCategory,
+    required this.onStore,
+    required this.onBuyAgainAdd,
+    required this.onSort,
   });
 
-  final List<PurchaseSuggestion> suggestions;
-  final String lang;
-  final String label;
-  final String dueLabel;
-  final ValueChanged<PurchaseSuggestion> onAdd;
+  final AppState state;
+  final ValueChanged<String> onCategory;
+  final ValueChanged<String> onStore;
+  final ValueChanged<PurchaseSuggestion> onBuyAgainAdd;
+  final VoidCallback onSort;
 
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
+    final t = state.t;
+    final showStore = state.visibleSellers.length >= 2;
+    final showBuyAgain = state.filter == 'all' && state.buyAgain.isNotEmpty;
+    final showSort = state.items.isNotEmpty;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: SizedBox(
-        height: 40,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsetsDirectional.only(start: 18, end: 18),
-          children: [
-            Padding(
-              padding: const EdgeInsetsDirectional.only(end: 10, top: 9),
-              child: Row(
-                children: [
-                  MoonaIcon('undo', size: 15, color: c.onSurfaceVariant),
-                  const SizedBox(width: 6),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w900,
-                      color: c.onSurfaceVariant,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            for (final s in suggestions) ...[
-              _SuggestionChip(
-                label: s.label(lang),
-                due: s.isDue,
-                dueLabel: dueLabel,
-                onTap: () => onAdd(s),
-              ),
-              const SizedBox(width: 8),
-            ],
+      padding: const EdgeInsetsDirectional.only(
+        start: 14,
+        end: 14,
+        top: 4,
+        bottom: 8,
+      ),
+      child: Row(
+        children: [
+          _CategoryPill(state: state, t: t, onSelect: onCategory),
+          if (showStore) ...[
+            const SizedBox(width: 8),
+            _StorePill(state: state, t: t, onSelect: onStore),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SuggestionChip extends StatelessWidget {
-  const _SuggestionChip({
-    required this.label,
-    required this.due,
-    required this.dueLabel,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool due;
-  final String dueLabel;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Material(
-      color: due ? c.primaryContainer : Colors.transparent,
-      shape: StadiumBorder(
-        side: due
-            ? BorderSide.none
-            : BorderSide(color: c.outlineVariant, width: 1.4),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsetsDirectional.only(start: 12, end: 14),
-          child: SizedBox(
-            height: 38,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                MoonaIcon(
-                  'plus',
-                  size: 16,
-                  color: due ? c.onPrimaryContainer : c.primary,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: due ? c.onPrimaryContainer : c.onSurface,
-                  ),
-                ),
-                if (due) ...[
-                  const SizedBox(width: 7),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: c.primary,
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                    child: Text(
-                      dueLabel,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w900,
-                        color: c.onPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+          if (showBuyAgain) ...[
+            const SizedBox(width: 8),
+            _BuyAgainPill(state: state, t: t, onAdd: onBuyAgainAdd),
+          ],
+          const Spacer(),
+          if (showSort) ...[
+            const SizedBox(width: 8),
+            _SortPill(
+              label: _sortLabel(t, state.sortKey),
+              grouped: state.grouped,
+              onTap: onSort,
             ),
-          ),
-        ),
+          ],
+        ],
       ),
     );
   }
@@ -577,11 +413,333 @@ String _sortLabel(AppStrings t, SortKey key) => switch (key) {
   SortKey.store => t.seller,
 };
 
-/// Compact sort/group control pinned just above the working list (moved here
-/// from the header to keep the header uncrowded). Carries the grouped badge and
-/// opens the existing sort sheet.
-class _SortBar extends StatelessWidget {
-  const _SortBar({
+/// Returns the position rect anchored just below a widget, for use with
+/// [showMenu]. Must be called from the widget's own build context.
+RelativeRect _pillMenuRect(BuildContext context) {
+  final box = context.findRenderObject() as RenderBox;
+  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+  final offset = box.localToGlobal(Offset.zero, ancestor: overlay);
+  return RelativeRect.fromLTRB(
+    offset.dx,
+    offset.dy + box.size.height + 6,
+    overlay.size.width - (offset.dx + box.size.width),
+    0,
+  );
+}
+
+class _CategoryPill extends StatelessWidget {
+  const _CategoryPill({
+    required this.state,
+    required this.t,
+    required this.onSelect,
+  });
+
+  final AppState state;
+  final AppStrings t;
+  final ValueChanged<String> onSelect;
+
+  String get _label {
+    if (state.filter == 'all') return t.allItems;
+    for (final cat in state.visibleCategories) {
+      if (cat.id == state.filter) return cat.label(state.lang);
+    }
+    return t.allItems;
+  }
+
+  Future<void> _openMenu(BuildContext context) async {
+    final c = context.c;
+    final rect = _pillMenuRect(context);
+    final picked = await showMenu<String>(
+      context: context,
+      position: rect,
+      color: c.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      items: [
+        _menuItem(context, 'all', t.allItems, null, state.filter == 'all'),
+        for (final cat in state.visibleCategories)
+          _menuItem(
+            context,
+            cat.id,
+            cat.label(state.lang),
+            cat.emoji,
+            state.filter == cat.id,
+          ),
+      ],
+    );
+    if (picked != null) onSelect(picked);
+  }
+
+  PopupMenuItem<String> _menuItem(
+    BuildContext context,
+    String value,
+    String label,
+    String? emoji,
+    bool selected,
+  ) {
+    final c = context.c;
+    return PopupMenuItem<String>(
+      value: value,
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          if (emoji != null && emoji.isNotEmpty) ...[
+            Text(emoji, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 9),
+          ] else
+            const SizedBox(width: 25),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: c.onSurface,
+              ),
+            ),
+          ),
+          if (selected) MoonaIcon('check', size: 18, color: c.primary),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openMenu(context),
+      child: _PillShape(
+        icon: 'tag',
+        label: _label,
+        active: state.filter != 'all',
+      ),
+    );
+  }
+}
+
+class _StorePill extends StatelessWidget {
+  const _StorePill({
+    required this.state,
+    required this.t,
+    required this.onSelect,
+  });
+
+  final AppState state;
+  final AppStrings t;
+  final ValueChanged<String> onSelect;
+
+  String get _label {
+    final sel = state.effectiveSellerFilter;
+    return sel == 'all' ? t.allStores : sel;
+  }
+
+  Future<void> _openMenu(BuildContext context) async {
+    final c = context.c;
+    final rect = _pillMenuRect(context);
+    final sel = state.effectiveSellerFilter;
+    final picked = await showMenu<String>(
+      context: context,
+      position: rect,
+      color: c.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      items: [
+        _menuItem(context, 'all', t.allStores, '🏪', sel == 'all'),
+        for (final seller in state.visibleSellers)
+          _menuItem(context, seller, seller, null, sel == seller),
+      ],
+    );
+    if (picked != null) onSelect(picked);
+  }
+
+  PopupMenuItem<String> _menuItem(
+    BuildContext context,
+    String value,
+    String label,
+    String? emoji,
+    bool selected,
+  ) {
+    final c = context.c;
+    return PopupMenuItem<String>(
+      value: value,
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          if (emoji != null && emoji.isNotEmpty) ...[
+            Text(emoji, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 9),
+          ] else
+            const SizedBox(width: 25),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: c.onSurface,
+              ),
+            ),
+          ),
+          if (selected) MoonaIcon('check', size: 18, color: c.primary),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openMenu(context),
+      child: _PillShape(
+        icon: 'store',
+        label: _label,
+        active: state.effectiveSellerFilter != 'all',
+      ),
+    );
+  }
+}
+
+class _BuyAgainPill extends StatelessWidget {
+  const _BuyAgainPill({
+    required this.state,
+    required this.t,
+    required this.onAdd,
+  });
+
+  final AppState state;
+  final AppStrings t;
+  final ValueChanged<PurchaseSuggestion> onAdd;
+
+  Future<void> _openMenu(BuildContext context) async {
+    final c = context.c;
+    final rect = _pillMenuRect(context);
+    final picked = await showMenu<PurchaseSuggestion>(
+      context: context,
+      position: rect,
+      color: c.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      items: [
+        for (final s in state.buyAgain)
+          PopupMenuItem<PurchaseSuggestion>(
+            value: s,
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                MoonaIcon('plus', size: 16, color: c.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    s.label(state.lang),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: c.onSurface,
+                    ),
+                  ),
+                ),
+                if (s.isDue) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: c.primary,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Text(
+                      t.dueBadge,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                        color: c.onPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+    if (picked != null) onAdd(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openMenu(context),
+      child: Container(
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        decoration: ShapeDecoration(
+          color: c.primaryContainer,
+          shape: const StadiumBorder(),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MoonaIcon('undo', size: 15, color: c.onPrimaryContainer),
+            const SizedBox(width: 6),
+            Text(
+              t.buyAgain,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w800,
+                color: c.onPrimaryContainer,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: c.primary,
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                '${state.buyAgain.length}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: c.onPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            MoonaIcon(
+              'chevron',
+              size: 13,
+              color: c.onPrimaryContainer,
+              turns: math.pi / 2,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Sort pill — no dropdown, taps open the sort sheet.
+class _SortPill extends StatelessWidget {
+  const _SortPill({
     required this.label,
     required this.grouped,
     required this.onTap,
@@ -594,52 +752,103 @@ class _SortBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(start: 18, end: 14, bottom: 6),
-      child: Row(
-        children: [
-          const Spacer(),
-          Material(
-            color: Colors.transparent,
-            shape: StadiumBorder(
-              side: BorderSide(color: c.outlineVariant, width: 1.3),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 13),
-                child: SizedBox(
-                  height: 34,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      MoonaIcon('sort', size: 16, color: c.onSurfaceVariant),
-                      const SizedBox(width: 7),
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w800,
-                          color: c.onSurface,
-                        ),
-                      ),
-                      if (grouped) ...[
-                        const SizedBox(width: 7),
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: c.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ],
-                    ],
+    return Material(
+      color: Colors.transparent,
+      shape: StadiumBorder(
+        side: BorderSide(color: c.outlineVariant, width: 1.3),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13),
+          child: SizedBox(
+            height: 34,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MoonaIcon('sort', size: 16, color: c.onSurfaceVariant),
+                const SizedBox(width: 7),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: c.onSurface,
                   ),
                 ),
+                if (grouped) ...[
+                  const SizedBox(width: 7),
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: c.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared visual shape for the category and store filter pills.
+class _PillShape extends StatelessWidget {
+  const _PillShape({
+    required this.icon,
+    required this.label,
+    required this.active,
+  });
+
+  final String icon;
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final fg = active ? c.onPrimaryContainer : c.onSurface;
+    final iconColor = active ? c.onPrimaryContainer : c.onSurfaceVariant;
+    return Container(
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 11),
+      decoration: ShapeDecoration(
+        color: active ? c.primaryContainer : Colors.transparent,
+        shape: StadiumBorder(
+          side: active
+              ? BorderSide.none
+              : BorderSide(color: c.outlineVariant, width: 1.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          MoonaIcon(icon, size: 15, color: iconColor),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 100),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w800,
+                color: fg,
               ),
             ),
+          ),
+          const SizedBox(width: 5),
+          MoonaIcon(
+            'chevron',
+            size: 13,
+            color: iconColor,
+            turns: math.pi / 2,
           ),
         ],
       ),
@@ -647,16 +856,13 @@ class _SortBar extends StatelessWidget {
   }
 }
 
+// ── Empty state ────────────────────────────────────────────────────────────
+
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.t,
-    required this.filtered,
-    required this.onAdd,
-  });
+  const _EmptyState({required this.t, required this.filtered});
 
   final AppStrings t;
   final bool filtered;
-  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -700,16 +906,87 @@ class _EmptyState extends StatelessWidget {
                 color: c.onSurfaceVariant,
               ),
             ),
-            if (!filtered) ...[
-              const SizedBox(height: 14),
-              MoonaButton(label: t.addItem, icon: 'plus', onPressed: onAdd),
-            ],
           ],
         ),
       ),
     );
   }
 }
+
+// ── Guiding arrow ──────────────────────────────────────────────────────────
+
+/// Transparent curved arrow overlaid near the FAB on an empty list, guiding
+/// the user toward the "Add item" button without adding a second button.
+class _GuidingArrow extends StatelessWidget {
+  const _GuidingArrow();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Opacity(
+      opacity: 0.38,
+      child: SizedBox(
+        width: 86,
+        height: 86,
+        child: CustomPaint(painter: _CurvedArrowPainter(color: c.primary)),
+      ),
+    );
+  }
+}
+
+class _CurvedArrowPainter extends CustomPainter {
+  const _CurvedArrowPainter({required this.color});
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final w = size.width;
+    final h = size.height;
+
+    // Cubic bezier curving from top area toward bottom-right (FAB corner).
+    final p0 = Offset(w * 0.16, h * 0.08);
+    final p1 = Offset(w * 0.05, h * 0.65); // pulls curve left-and-down
+    final p2 = Offset(w * 0.66, h * 0.84); // approaches the endpoint
+    final p3 = Offset(w * 0.86, h * 0.78); // tip of arrow
+
+    canvas.drawPath(
+      Path()..moveTo(p0.dx, p0.dy)..cubicTo(p1.dx, p1.dy, p2.dx, p2.dy, p3.dx, p3.dy),
+      paint,
+    );
+
+    // Arrowhead: two lines at p3, rotated ±145° from the tangent at t=1.
+    // Tangent direction at t=1 is proportional to (p3 - p2).
+    final tdx = p3.dx - p2.dx;
+    final tdy = p3.dy - p2.dy;
+    final tlen = math.sqrt(tdx * tdx + tdy * tdy);
+    final ux = tdx / tlen;
+    final uy = tdy / tlen;
+
+    const arrowLen = 9.0;
+    for (final angle in const [-2.53, 2.53]) {
+      // ±145° in radians ≈ ±2.53
+      final cos = math.cos(angle);
+      final sin = math.sin(angle);
+      canvas.drawLine(
+        p3,
+        Offset(p3.dx + arrowLen * (cos * ux - sin * uy), p3.dy + arrowLen * (sin * ux + cos * uy)),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CurvedArrowPainter old) => old.color != color;
+}
+
+// ── FAB ───────────────────────────────────────────────────────────────────
 
 class _AddFab extends StatelessWidget {
   const _AddFab({required this.label, required this.onTap});

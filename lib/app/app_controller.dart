@@ -467,7 +467,12 @@ class AppController extends Notifier<AppState> {
       trash: state.trash.where((i) => i.id != itemId).toList(),
       items: [
         ...state.items,
-        item.copyWith(status: ItemStatus.active),
+        item.copyWith(
+          status: ItemStatus.active,
+          scratchedAt: null,
+          scratchExpiresAt: null,
+          scratchedByUserId: null,
+        ),
       ],
     );
     _toast(state.t.restore);
