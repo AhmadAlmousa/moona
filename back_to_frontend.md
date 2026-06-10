@@ -1,6 +1,232 @@
 # Moona Backend To Frontend Contract
 
-Last updated: 2026-06-05
+Last updated: 2026-06-09
+
+> **Backend/dev deploy note (2026-06-09, Phase B correction + push send points live):**
+> Picked up the Phase B frontend handoff. I found and fixed two
+> `getInsights` response mismatches before frontend verification:
+> `byDayOfWeek` is now Sunday-first (`0 = Sunday ... 6 = Saturday`), and
+> `topProducts[]` now emits `count` instead of `purchaseCount`.
+>
+> I also wired the planned gated push send-on-event points in the function:
+> share requested -> target viewer, share accepted -> owner, item added/edited
+> on a shared list -> the other list participants, and fresh shopping-presence
+> start -> the other list participants. Sends remain best-effort and go through
+> the existing `MOONA_PUSH_ENABLED=true` repository gate, so they are no-ops
+> until provider setup and frontend push-target registration are ready.
+> Repeated presence heartbeats do not re-notify; stale rows reset `activeAt`
+> when treated as a fresh shopping start.
+>
+> Live deployment:
+> - `moonaApi` active deployment: `6a27ba5da1f0974bb1a2`
+> - Created: `2026-06-09T07:01:49.782+00:00`
+> - Runtime/entrypoint: `dart-3.1` / `lib/main.dart`
+> - Function is `live: true`; scopes still include `messages.write`.
+>
+> Smoke verification: no-auth execution of
+> `{"action":"getInsights","rangeDays":90}` hit deployment
+> `6a27ba5da1f0974bb1a2` and returned `401 unauthorized`, confirming the live
+> dispatcher is serving the new build. Verification before deploy: backend
+> analyzer clean; backend tests pass (`29` tests). No schema/provisioning change
+> was needed.
+
+> **Backend/dev deploy note (2026-06-09, feature-plan backend live):**
+> Gate A and the broader feature-plan backend pass are now provisioned and live
+> in Appwrite Cloud.
+>
+> Live deployment:
+> - `moonaApi` active deployment: `6a27b3b63f2951eb1502`
+> - Created: `2026-06-09T06:33:26.374+00:00`
+> - Runtime/entrypoint: `dart-3.1` / `lib/main.dart`
+> - Function is `live: true`; scopes include `messages.write`.
+>
+> Live schema verified:
+> - Project now has 8 TablesDB tables, including `list_events` and
+>   `shopping_presence`.
+> - `list_items` has `scratchedAt`, `scratchExpiresAt`, `scratchedByUserId`.
+> - `owner_scratch` index is available.
+>
+> Smoke verification: no-auth execution of
+> `{"action":"getActivity","limit":1}` hit deployment
+> `6a27b3b63f2951eb1502` and returned `401 unauthorized`, which confirms the
+> live Dart dispatcher recognizes the new action. Phase A item attribution
+> enrichment should now be visible after the frontend refreshes bootstrap data.
+>
+> Backend tooling note: `backend/bin/provision.dart` now tolerates Appwrite
+> Cloud's plan-limit `additional_resource_not_allowed` response for already
+> existing database/bucket resources after confirming the configured resource
+> exists. `backend/scripts/deploy_function.sh` now preserves the `messages.write`
+> scope when used for future CLI deploys.
+
+> **Backend/dev sync note (2026-06-09, Phase A frontend review):**
+> Reviewed the frontend Phase A handoff and current Flutter changes. No new
+> backend contract is needed for Shop by seller, Store Mode, or Bulk paste v1;
+> they correctly reuse existing item fields and existing `createItem` /
+> scratch-to-trash behavior. The optional `createItemsBatch` can stay parked.
+>
+> The one requested backend gate, item attribution enrichment, is already
+> implemented locally in the feature-plan backend pass below:
+> `getBootstrapData` enriches active and trash item rows with
+> `createdByDisplayName` / `updatedByDisplayName` while preserving raw
+> `createdByUserId` / `updatedByUserId`. The frontend parser/edit-sheet display
+> should light up after live schema/function deployment. No extra backend code
+> change is needed from this Phase A review.
+>
+> Verification on the current frontend tree: `analyze_files` clean for
+> `lib/` + `test/`; Flutter tests pass (`52` tests). Live backend provisioning
+> and redeploy are now complete; see the deploy note above.
+
+> **Backend/dev implementation note (2026-06-09, feature-plan backend pass):**
+> Implemented the local backend contract for the selected feature plan. This is
+> code-complete, tested locally, and now deployed/provisioned live. See the
+> deploy note above for the active deployment id and live verification.
+>
+> New schema:
+> - `list_items`: `scratchedAt`, `scratchExpiresAt`, `scratchedByUserId`.
+> - New `list_events` table, row-security read for the owner + accepted viewers.
+>   Event `type` values: `added`, `edited`, `scratched`, `deleted`, `restored`,
+>   `cleared`, `share_accepted`, `share_revoked`.
+> - New `shopping_presence` table keyed by actor id, row-security read for the
+>   visible owner list participants.
+> - Function provisioning now includes `messages.write` for future push sends.
+>
+> New/extended actions:
+> - `getBootstrapData` now lazily finalizes expired scratches, enriches active
+>   and trash items with `createdByDisplayName` / `updatedByDisplayName`, returns
+>   `shoppingPresence`, and returns compact suggestions at
+>   `suggestions.items`.
+> - `getActivity { limit, cursor } -> { events, nextCursor, profiles }`.
+> - `suggestItems { limit } -> { suggestions }`.
+> - `getInsights { rangeDays } -> { insights }`.
+> - `scratchItem { itemId, windowSeconds? }`, `undoScratchItem { itemId }`,
+>   `finalizeScratch { itemId, force? }`.
+> - `setShoppingPresence { active }`.
+>
+> Existing mutations now append best-effort events: `createItem` -> `added`,
+> `updateItem` -> `edited`, `trashItem(reason: "scratch_timer")` -> `scratched`,
+> other `trashItem` calls -> `deleted`, `restoreTrashItem` -> `restored`,
+> `clearTrash` -> one `cleared` event with `clearedCount`, share accept/revoke
+> -> share events. Event append failures intentionally do not roll back the user
+> mutation.
+>
+> Backend-owned scratch behavior: scratched items keep `status: "active"` until
+> finalized. `scratchItem` sets the scratch fields and realtime updates the
+> existing `list_items` row; `undoScratchItem` clears the fields before expiry;
+> `finalizeScratch` / lazy reads move the item to trash with
+> `trashReason: "scratch_timer"` and write the purchase/history event.
+>
+> Push note: repository support is gated by `MOONA_PUSH_ENABLED=true` and uses
+> Appwrite Messaging direct `users` targeting. The function has the scope in
+> provisioning, but provider setup and frontend push-target registration are
+> still required before sends should be enabled.
+>
+> Verified locally: `dart analyze` clean for `backend/`; backend Dart tests pass
+> (`26` tests).
+
+> **Backend/dev feature exploration note (2026-06-09, historical):**
+> Logged backend-side product ideas for frontend review. This note is the
+> brainstorming source; the implementation note above supersedes it for items
+> that have now been built locally.
+>
+> 1. **Item attribution.** `list_items` already stores `createdByUserId` and
+> `updatedByUserId`; bootstrap could enrich active/trash items with
+> `createdByDisplayName` and `updatedByDisplayName` from the existing profiles
+> lookup. Low backend risk, no schema change, and useful in shared lists so the
+> UI can show who added or last changed an item.
+> 2. **Invite unregistered contacts.** Today `requestShare` requires an existing
+> profile. Add phone-based pending invites so a non-Moona contact can receive an
+> SMS/link, sign up later, and automatically claim the invite by normalized
+> `phoneDigits`. Likely needs a new `share_invites` table or extra share fields,
+> plus `createInvite` / `claimInvites` behavior during `ensureProfile`.
+> 3. **Recurring/suggested items.** Add a `suggestItems` action that looks at
+> recently trashed or repeatedly added products for the visible owner and returns
+> compact product suggestions. Frontend could show a small "usual items" row
+> above the add button. This uses existing list history first; a later version
+> could add per-product counters.
+> 4. **Sharing roles.** Add a `role` field to shares, starting with `editor`
+> and `viewer`, with an optional `checker` role if we want users who can scratch
+> items but not edit details. Backend would split read/mutate authorization by
+> role instead of treating every accepted viewer as an editor. Frontend would
+> expose the role in Sharing settings.
+> 5. **Backend-owned scratch undo.** Replace the client-owned 10-second delete
+> window with backend state: `scratchItem`, `undoScratchItem`, and finalization
+> after the deadline. This is larger, but it makes widget/background check-off
+> reliable even if the app process is killed before the delayed `trashItem`
+> call runs.
+> 6. **Recent activity feed.** Add a small `list_events` table for item added,
+> edited, scratched, restored, cleared, and share accepted/revoked events. It
+> gives shared-list users a clear "what changed" view without crowding item
+> cards. This pairs well with item attribution but is a bigger schema addition.
+> 7. **Multiple lists/households.** Long-term expansion: add `lists` and
+> `memberships` so a user can have Groceries, Pharmacy, Trip, etc. This is the
+> highest product ceiling and the highest migration cost because the current
+> model assumes one owned list plus one received list.
+>
+> Backend recommendation: start with **item attribution** and **unregistered
+> contact invites**. They fit the existing Appwrite Function model, improve
+> current shared-list workflows, and give the frontend meaningful UI work
+> without forcing a full list/membership redesign.
+
+> **Backend/dev sync note (2026-06-08, frontend widget fix acknowledged):**
+> Resynced with `front_to_backend.md`. Confirmed the widget empty-list issue is
+> closed on the frontend side: data was reaching shared widget storage, and the
+> failing path was launcher support for the `RemoteViewsService`-backed
+> `ListView`. The direct `LinearLayout`/`addView` native rendering fix does not
+> need any backend contract or endpoint change. No backend action remains for
+> widget display.
+>
+> The separate contact-match normalization fix below is still a backend/code
+> action. It has been implemented and tested locally, but live `lookupContacts`
+> will keep the old behavior until `moonaApi` is redeployed.
+
+> **Backend/dev sync note (2026-06-08, widget empty list + contact match miss):**
+> The Android home-screen widget empty list is not something the backend can
+> directly fix if the in-app list is populated: the widget renders only the
+> compact snapshot Flutter writes from `AppState.items` into `home_widget`
+> storage. `getBootstrapData` already returns active items and the widget does
+> not call the backend for display. If the widget still shows empty while the
+> app list has items, debug the snapshot/native adapter path (`pushWidgetSnapshot`
+> -> `moona_widget_payload` -> `MoonaWidgetService.onDataSetChanged`).
+>
+> I did find and fix a backend-relevant contact-discovery miss. Phone
+> normalization now canonicalizes Saudi numbers saved with a national trunk zero
+> after the country code (`+966 05...`, `0096605...`, `96605...`) to the same
+> `9665...` digits used by auth/profile rows, and maps Arabic/Persian digit
+> glyphs before validation. `lookupContacts` also queries both canonical and
+> legacy `9660...` digit variants, then maps returned profile rows back to the
+> canonical `phoneDigits`. The Flutter-side mirrored normalizer was updated too
+> so registered lookup hits attach to the existing device-contact row instead of
+> falling back to a duplicate entry. This is a code change and needs the backend
+> function redeployed before it affects live `lookupContacts`.
+
+> **Backend/dev sync note (2026-06-08, home-screen widget check-off):**
+> Confirmed: no backend change is needed for the Android widget check-off path.
+> `trashItem` is a standalone action. The function handler derives `actorId`
+> and the user JWT from the Appwrite execution headers on every invocation, and
+> `trashItem` then loads the item, checks that the actor is the owner or an
+> accepted viewer for that owner list, and applies `trashPatch(actorId,
+> reason)`. It does not depend on a previous `getBootstrapData` call, a warmed
+> repository, realtime state, or any main-isolate/client-instance identity.
+>
+> So a headless isolate that creates a fresh `AppwriteMoonaRepository`, restores
+> the persisted Appwrite session, and calls `trashItem(id, reason:
+> "scratch_timer")` should be accepted exactly like the in-app delayed commit.
+> If on-device QA shows `unauthorized` from the closed-app widget path, that
+> means Appwrite did not attach the user execution headers from that restored
+> mobile session in the background engine; the frontend fallback you proposed
+> is correct: mint `Account.createJWT` while foregrounded and use `setJWT` in
+> the isolate before `Functions.createExecution`. No server code/schema change
+> would be needed for that fallback either.
+
+> **Backend/dev sync note (2026-06-05):**
+> I checked `front_to_backend.md` after the frontend review of the contact
+> picker refactor and Settings display-name edit. No new backend action is
+> requested. The older Q3/Q4/Q8 "open" and "pending deploy" markers in the
+> frontend notes are historical; they are superseded by the live Dart deployment
+> `6a22265af33282ae69f2`, which includes `lookupContacts`,
+> `createImageViewToken`, counterparty/profile enrichment, trash display-name
+> enrichment, and the `tokens.write` scope. I am leaving
+> `front_to_backend.md` unchanged because it is the frontend-owned handoff file.
 
 > **Backend/dev note (2026-06-05, contact picker investigation + display-name edit):**
 > I investigated the still-empty device contact picker. The Appwrite
@@ -97,6 +323,8 @@ Last updated: 2026-06-05
   - `products`
   - `list_items`
   - `shares`
+  - `list_events`
+  - `shopping_presence`
 - Storage bucket: `item_images`.
 - Deployed Function ID: `moonaApi`.
 - Registered platforms:
@@ -119,6 +347,13 @@ Last updated: 2026-06-05
   - `unlinkShare`
   - `getSharingStatus`
   - `createImageViewToken`
+  - `getActivity`
+  - `suggestItems`
+  - `getInsights`
+  - `scratchItem`
+  - `undoScratchItem`
+  - `finalizeScratch`
+  - `setShoppingPresence`
   - `adminList`
   - `adminCreate`
   - `adminUpdate`
@@ -193,9 +428,10 @@ Returns `{ "profile": { ... } }`.
 ```
 
 Returns profile, visible list owner/shared state, active items, trash items,
-catalogs, sharing status, and a `profiles` lookup for display names.
+catalogs, sharing status, shopping presence, compact suggestions, and a
+`profiles` lookup for display names.
 
-Response additions pending deploy:
+Response additions:
 
 ```json
 {
@@ -206,13 +442,16 @@ Response additions pending deploy:
       "phone": "+966501112233",
       "phoneDigits": "966501112233"
     }
-  }
+  },
+  "shoppingPresence": [],
+  "suggestions": { "items": [] }
 }
 ```
 
 Returned share rows also include `counterpartyId`, `counterpartyName`, and
-`counterpartyPhone`. Returned trash rows include `trashedByDisplayName` when the
-profile is available.
+`counterpartyPhone`. Returned active/trash item rows include
+`createdByDisplayName` and `updatedByDisplayName` when the profile is available.
+Returned trash rows also include `trashedByDisplayName`.
 
 `searchProducts`
 
@@ -419,6 +658,135 @@ Returns:
 Use the token with Appwrite Storage `getFileView` / `getFilePreview`, or append
 it to the existing URL as `&token=<encoded token>`.
 
+`getActivity`
+
+```json
+{ "limit": 50, "cursor": "" }
+```
+
+Returns paginated list events for the visible owner list. `limit` is clamped to
+1-100. `cursor` is optional and should be the previous page's `nextCursor`.
+
+```json
+{
+  "events": [
+    {
+      "$id": "event-id",
+      "ownerId": "owner-id",
+      "actorId": "viewer-id",
+      "actorDisplayName": "Noor",
+      "type": "scratched",
+      "itemId": "list-item-id",
+      "productId": "product-id",
+      "productName": "Milk",
+      "productNameAr": "حليب",
+      "productNameEn": "Milk",
+      "count": 1,
+      "unitId": "bottle",
+      "categoryId": "grocery",
+      "brand": "",
+      "seller": "",
+      "important": false,
+      "clearedCount": 0,
+      "createdAt": "2026-06-09T12:00:00.000Z"
+    }
+  ],
+  "nextCursor": "",
+  "profiles": {}
+}
+```
+
+`suggestItems`
+
+```json
+{ "limit": 20 }
+```
+
+Returns purchase suggestions aggregated from finalized `scratched` events over a
+bounded recent history scan, excluding products already active on the visible
+list.
+
+```json
+{
+  "suggestions": [
+    {
+      "productId": "product-id",
+      "productName": "Milk",
+      "productNameAr": "حليب",
+      "productNameEn": "Milk",
+      "unitId": "bottle",
+      "categoryId": "grocery",
+      "brand": "",
+      "seller": "",
+      "purchaseCount": 4,
+      "lastPurchasedAt": "2026-06-09T12:00:00.000Z",
+      "avgIntervalDays": 7,
+      "dueScore": 1.8
+    }
+  ]
+}
+```
+
+`getInsights`
+
+```json
+{ "rangeDays": 90 }
+```
+
+`rangeDays` is clamped to 7-365. Returns lazy aggregates over finalized
+`scratched` events for the visible owner list.
+
+```json
+{
+  "insights": {
+    "rangeDays": 90,
+    "totalChecked": 12,
+    "distinctProducts": 8,
+    "topProducts": [],
+    "byCategory": [],
+    "byDayOfWeek": [0, 2, 1, 4, 3, 1, 1],
+    "byWeek": []
+  }
+}
+```
+
+`scratchItem`
+
+```json
+{ "itemId": "list-item-id", "windowSeconds": 10 }
+```
+
+Sets `scratchedAt`, `scratchExpiresAt`, and `scratchedByUserId` while keeping
+`status: "active"`. `windowSeconds` is optional and clamped to 3-120.
+
+`undoScratchItem`
+
+```json
+{ "itemId": "list-item-id" }
+```
+
+Clears scratch fields if the scratch has not expired. If it has expired, the
+backend finalizes it instead.
+
+`finalizeScratch`
+
+```json
+{ "itemId": "list-item-id", "force": false }
+```
+
+Moves an expired scratched item to trash with `trashReason: "scratch_timer"` and
+appends a `scratched` list event. `force` is optional and should normally be
+omitted.
+
+`setShoppingPresence`
+
+```json
+{ "active": true }
+```
+
+When active, upserts the caller's row in `shopping_presence` for their visible
+owner list and returns the enriched row. `{ "active": false }` clears it.
+
 Admin functions require the authenticated Appwrite user ID to be listed in
 `MOONA_ADMIN_USER_IDS`.
 
@@ -475,6 +843,8 @@ Subscribe only after auth. Use normal Appwrite permission-scoped channels:
 - `tablesdb.moona.tables.products.rows`
 - `tablesdb.moona.tables.list_items.rows`
 - `tablesdb.moona.tables.shares.rows`
+- `tablesdb.moona.tables.list_events.rows`
+- `tablesdb.moona.tables.shopping_presence.rows`
 
 Expected handling:
 
@@ -482,6 +852,8 @@ Expected handling:
 - `shares`: refresh sharing status and visible owner.
 - `profiles`: refresh preferences and `activeReceivedOwnerId`.
 - `categories`, `units`, `products`: refresh catalogs/autocomplete data.
+- `list_events`: refresh or prepend activity feed rows.
+- `shopping_presence`: refresh shopping-now indicators.
 
 Document and file permissions are updated to owner plus accepted viewers when a
 share is accepted/unlinked or when an item image is saved.
@@ -509,7 +881,7 @@ share is accepted/unlinked or when an item image is saved.
 - Universal products are not deleted when list items are trashed or deleted.
 - Item images live in Appwrite Storage for MVP, despite the older product note
   mentioning peer-to-peer image storage.
-- The Appwrite Cloud MVP project is provisioned with 6 tables, the
+- The Appwrite Cloud MVP project is provisioned with 8 tables, the
   `item_images` bucket, the `moonaApi` function, 5 categories, 12 units, and 50
   products. A local API key is only needed if rerunning the provisioner from a
   shell.

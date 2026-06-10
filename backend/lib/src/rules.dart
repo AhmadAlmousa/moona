@@ -262,6 +262,9 @@ Map<String, dynamic> buildListItemDocument(
     'trashedAt': '',
     'trashedByUserId': '',
     'trashReason': '',
+    'scratchedAt': '',
+    'scratchExpiresAt': '',
+    'scratchedByUserId': '',
     'createdByUserId': actorId,
     'updatedByUserId': actorId,
     'createdAt': now,
@@ -310,6 +313,9 @@ Map<String, dynamic> trashPatch(String actorId,
     'trashedAt': now,
     'trashedByUserId': actorId,
     'trashReason': reason,
+    'scratchedAt': '',
+    'scratchExpiresAt': '',
+    'scratchedByUserId': '',
     'updatedByUserId': actorId,
     'updatedAt': now,
   };
@@ -320,9 +326,283 @@ Map<String, dynamic> restoreTrashPatch(String actorId) => {
       'trashedAt': '',
       'trashedByUserId': '',
       'trashReason': '',
+      'scratchedAt': '',
+      'scratchExpiresAt': '',
+      'scratchedByUserId': '',
       'updatedByUserId': actorId,
       'updatedAt': nowIso(),
     };
+
+Map<String, dynamic> scratchPatch(
+  String actorId, {
+  int windowSeconds = 10,
+  DateTime? now,
+}) {
+  final timestamp = now ?? DateTime.now().toUtc();
+  return {
+    'scratchedAt': timestamp.toIso8601String(),
+    'scratchExpiresAt':
+        timestamp.add(Duration(seconds: windowSeconds)).toIso8601String(),
+    'scratchedByUserId': actorId,
+    'updatedByUserId': actorId,
+    'updatedAt': timestamp.toIso8601String(),
+  };
+}
+
+Map<String, dynamic> undoScratchPatch(String actorId) => {
+      'scratchedAt': '',
+      'scratchExpiresAt': '',
+      'scratchedByUserId': '',
+      'updatedByUserId': actorId,
+      'updatedAt': nowIso(),
+    };
+
+bool hasScratch(Map<String, dynamic> item) =>
+    (item['scratchedAt'] ?? '').toString().isNotEmpty ||
+    (item['scratchExpiresAt'] ?? '').toString().isNotEmpty ||
+    (item['scratchedByUserId'] ?? '').toString().isNotEmpty;
+
+bool isScratchExpired(
+  Map<String, dynamic> item, [
+  DateTime? now,
+]) {
+  final expiresAt =
+      DateTime.tryParse((item['scratchExpiresAt'] ?? '').toString());
+  if (expiresAt == null) return false;
+  final timestamp = now ?? DateTime.now().toUtc();
+  return !expiresAt.toUtc().isAfter(timestamp);
+}
+
+String scratchActorId(Map<String, dynamic> item, String fallbackActorId) {
+  final value = (item['scratchedByUserId'] ?? '').toString();
+  return value.isEmpty ? fallbackActorId : value;
+}
+
+Map<String, dynamic> buildListEventDocument({
+  required String ownerId,
+  required String actorId,
+  required String type,
+  Map<String, dynamic>? item,
+  Map<String, dynamic>? product,
+  int? clearedCount,
+  DateTime? now,
+}) {
+  final timestamp = now ?? DateTime.now().toUtc();
+  final productId =
+      (item?['productId'] ?? product?['id'] ?? product?[r'$id'])?.toString();
+  return {
+    'ownerId': ownerId,
+    'actorId': actorId,
+    'type': type,
+    'itemId': item == null ? '' : documentId(item),
+    'productId': productId ?? '',
+    'productName':
+        (product?['displayName'] ?? product?['nameEn'] ?? productId ?? '')
+            .toString(),
+    'productNameAr': (product?['nameAr'] ?? '').toString(),
+    'productNameEn':
+        (product?['nameEn'] ?? product?['displayName'] ?? '').toString(),
+    'count': item?['count'] ?? 0,
+    'unitId': (item?['unitId'] ?? '').toString(),
+    'categoryId': (item?['categoryId'] ?? '').toString(),
+    'brand': (item?['brand'] ?? '').toString(),
+    'seller': (item?['seller'] ?? '').toString(),
+    'important': item?['important'] == true,
+    'clearedCount': clearedCount ?? 0,
+    'createdAt': timestamp.toIso8601String(),
+  };
+}
+
+Map<String, dynamic> withActorDisplayNames(
+  Map<String, dynamic> item,
+  Map<String, dynamic> profiles,
+) {
+  final createdBy = (item['createdByUserId'] ?? '').toString();
+  final updatedBy = (item['updatedByUserId'] ?? '').toString();
+  return {
+    ...item,
+    if (createdBy.isNotEmpty &&
+        profiles[createdBy] is Map &&
+        ((profiles[createdBy] as Map)['displayName'] ?? '')
+            .toString()
+            .isNotEmpty)
+      'createdByDisplayName': (profiles[createdBy] as Map)['displayName'],
+    if (updatedBy.isNotEmpty &&
+        profiles[updatedBy] is Map &&
+        ((profiles[updatedBy] as Map)['displayName'] ?? '')
+            .toString()
+            .isNotEmpty)
+      'updatedByDisplayName': (profiles[updatedBy] as Map)['displayName'],
+  };
+}
+
+Map<String, dynamic> withEventActorDisplayName(
+  Map<String, dynamic> event,
+  Map<String, dynamic> profiles,
+) {
+  final actorId = (event['actorId'] ?? '').toString();
+  final profile = profiles[actorId];
+  final displayName = profile is Map ? profile['displayName']?.toString() : '';
+  return {
+    ...event,
+    if (displayName != null && displayName.isNotEmpty)
+      'actorDisplayName': displayName,
+  };
+}
+
+Map<String, dynamic> withPresenceActorDisplayName(
+  Map<String, dynamic> presence,
+  Map<String, dynamic> profiles,
+) {
+  final actorId = (presence['actorId'] ?? '').toString();
+  final profile = profiles[actorId];
+  final displayName = profile is Map ? profile['displayName']?.toString() : '';
+  return {
+    ...presence,
+    if (displayName != null && displayName.isNotEmpty)
+      'actorDisplayName': displayName,
+  };
+}
+
+List<Map<String, dynamic>> suggestPurchaseItems({
+  required List<Map<String, dynamic>> events,
+  required Set<String> activeProductIds,
+  required int limit,
+  DateTime? now,
+}) {
+  final timestamp = now ?? DateTime.now().toUtc();
+  final byProduct = <String, List<Map<String, dynamic>>>{};
+  for (final event in events) {
+    if (event['type'] != 'scratched') continue;
+    final productId = (event['productId'] ?? '').toString();
+    if (productId.isEmpty || activeProductIds.contains(productId)) continue;
+    byProduct.putIfAbsent(productId, () => []).add(event);
+  }
+
+  final suggestions = <Map<String, dynamic>>[];
+  for (final entry in byProduct.entries) {
+    final productEvents = entry.value
+      ..sort((a, b) => eventTime(a).compareTo(eventTime(b)));
+    final latest = productEvents.last;
+    final intervals = <int>[];
+    for (var i = 1; i < productEvents.length; i += 1) {
+      final previous = eventTime(productEvents[i - 1]);
+      final current = eventTime(productEvents[i]);
+      final days = current.difference(previous).inDays.abs();
+      if (days > 0) intervals.add(days);
+    }
+    final avgIntervalDays = intervals.isEmpty
+        ? 0.0
+        : intervals.reduce((a, b) => a + b) / intervals.length;
+    final lastPurchasedAt = eventTime(latest);
+    final daysSince = timestamp.difference(lastPurchasedAt).inHours / 24;
+    final cadenceScore =
+        avgIntervalDays <= 0 ? 0.0 : daysSince / avgIntervalDays;
+    final frequencyScore = math.min(productEvents.length, 10) / 10;
+    final recencyScore = math.max(0, 1 - daysSince / 365);
+    final dueScore = cadenceScore + frequencyScore + recencyScore;
+
+    suggestions.add({
+      'productId': entry.key,
+      'productName': latest['productName'] ?? '',
+      'productNameAr': latest['productNameAr'] ?? '',
+      'productNameEn': latest['productNameEn'] ?? '',
+      'unitId': latest['unitId'] ?? '',
+      'categoryId': latest['categoryId'] ?? '',
+      'brand': latest['brand'] ?? '',
+      'seller': latest['seller'] ?? '',
+      'purchaseCount': productEvents.length,
+      'lastPurchasedAt': lastPurchasedAt.toIso8601String(),
+      'avgIntervalDays': avgIntervalDays,
+      'dueScore': dueScore,
+    });
+  }
+
+  suggestions.sort((a, b) {
+    final byScore = (b['dueScore'] as num).compareTo(a['dueScore'] as num);
+    if (byScore != 0) return byScore;
+    return (b['lastPurchasedAt'] ?? '')
+        .toString()
+        .compareTo((a['lastPurchasedAt'] ?? '').toString());
+  });
+  return suggestions.take(limit).toList();
+}
+
+Map<String, dynamic> buildInsights({
+  required List<Map<String, dynamic>> events,
+  required int rangeDays,
+}) {
+  final scratched = events.where((event) => event['type'] == 'scratched');
+  final productIds = <String>{};
+  final byProduct = <String, Map<String, dynamic>>{};
+  final byCategory = <String, Map<String, dynamic>>{};
+  final byDayOfWeek = List<int>.filled(7, 0);
+  final byWeek = <String, int>{};
+
+  for (final event in scratched) {
+    final productId = (event['productId'] ?? '').toString();
+    if (productId.isNotEmpty) productIds.add(productId);
+    final product = byProduct.putIfAbsent(productId, () {
+      return {
+        'productId': productId,
+        'productName': event['productName'] ?? '',
+        'productNameAr': event['productNameAr'] ?? '',
+        'productNameEn': event['productNameEn'] ?? '',
+        'count': 0,
+        'lastPurchasedAt': '',
+      };
+    });
+    product['count'] = (product['count'] as int) + 1;
+    final eventTimestamp = eventTime(event);
+    final currentLast = DateTime.tryParse(
+      (product['lastPurchasedAt'] ?? '').toString(),
+    );
+    if (currentLast == null || eventTimestamp.isAfter(currentLast)) {
+      product['lastPurchasedAt'] = eventTimestamp.toIso8601String();
+    }
+
+    final categoryId = (event['categoryId'] ?? '').toString();
+    final category = byCategory.putIfAbsent(categoryId, () {
+      return {'categoryId': categoryId, 'count': 0};
+    });
+    category['count'] = (category['count'] as int) + 1;
+
+    byDayOfWeek[eventTimestamp.weekday % 7] += 1;
+    final weekStart =
+        eventTimestamp.subtract(Duration(days: eventTimestamp.weekday - 1));
+    final key = DateTime.utc(weekStart.year, weekStart.month, weekStart.day)
+        .toIso8601String();
+    byWeek[key] = (byWeek[key] ?? 0) + 1;
+  }
+
+  final topProducts = byProduct.values.toList()
+    ..sort((a, b) {
+      final byCount = (b['count'] as int).compareTo(a['count'] as int);
+      if (byCount != 0) return byCount;
+      return (b['lastPurchasedAt'] ?? '')
+          .toString()
+          .compareTo((a['lastPurchasedAt'] ?? '').toString());
+    });
+  final categories = byCategory.values.toList()
+    ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
+  final weeks = byWeek.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+
+  return {
+    'rangeDays': rangeDays,
+    'totalChecked': scratched.length,
+    'distinctProducts': productIds.length,
+    'topProducts': topProducts.take(10).toList(),
+    'byCategory': categories,
+    'byDayOfWeek': byDayOfWeek,
+    'byWeek': [
+      for (final entry in weeks) {'weekStart': entry.key, 'count': entry.value},
+    ],
+  };
+}
+
+DateTime eventTime(Map<String, dynamic> event) =>
+    DateTime.tryParse((event['createdAt'] ?? '').toString())?.toUtc() ??
+    DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 
 Map<String, dynamic> buildShareDocument(String ownerId, String viewerId) {
   if (ownerId == viewerId) {

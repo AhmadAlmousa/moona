@@ -13,6 +13,8 @@ abstract final class CollectionIds {
   static const products = 'products';
   static const listItems = 'list_items';
   static const shares = 'shares';
+  static const listEvents = 'list_events';
+  static const shoppingPresence = 'shopping_presence';
 
   static const all = [
     profiles,
@@ -21,6 +23,8 @@ abstract final class CollectionIds {
     products,
     listItems,
     shares,
+    listEvents,
+    shoppingPresence,
   ];
 }
 
@@ -40,6 +44,13 @@ abstract final class FunctionIds {
   static const unlinkShare = 'unlinkShare';
   static const getSharingStatus = 'getSharingStatus';
   static const createImageViewToken = 'createImageViewToken';
+  static const getActivity = 'getActivity';
+  static const suggestItems = 'suggestItems';
+  static const getInsights = 'getInsights';
+  static const scratchItem = 'scratchItem';
+  static const undoScratchItem = 'undoScratchItem';
+  static const finalizeScratch = 'finalizeScratch';
+  static const setShoppingPresence = 'setShoppingPresence';
   static const adminList = 'adminList';
   static const adminCreate = 'adminCreate';
   static const adminUpdate = 'adminUpdate';
@@ -61,4 +72,8 @@ Map<String, String> get realtimeChannels => {
           'tablesdb.$databaseId.tables.${CollectionIds.listItems}.rows',
       CollectionIds.shares:
           'tablesdb.$databaseId.tables.${CollectionIds.shares}.rows',
+      CollectionIds.listEvents:
+          'tablesdb.$databaseId.tables.${CollectionIds.listEvents}.rows',
+      CollectionIds.shoppingPresence:
+          'tablesdb.$databaseId.tables.${CollectionIds.shoppingPresence}.rows',
     };

@@ -3,7 +3,7 @@ import 'errors.dart';
 typedef JsonMap = Map<String, dynamic>;
 
 JsonMap normalizePhone(Object? input, {String defaultCountryCode = '966'}) {
-  final raw = (input ?? '').toString().trim();
+  final raw = _asciiDigits((input ?? '').toString()).trim();
   if (raw.isEmpty) {
     throw MoonaError(
       ErrorCodes.invalidInput,
@@ -21,6 +21,10 @@ JsonMap normalizePhone(Object? input, {String defaultCountryCode = '966'}) {
   } else if (!digits.startsWith(defaultCountryCode) && digits.length <= 10) {
     digits = '$defaultCountryCode$digits';
   }
+  digits = stripNationalTrunkAfterCountryCode(
+    digits,
+    defaultCountryCode: defaultCountryCode,
+  );
 
   if (digits.length < 8 || digits.length > 15) {
     throw MoonaError(
@@ -35,6 +39,48 @@ JsonMap normalizePhone(Object? input, {String defaultCountryCode = '966'}) {
     'e164': '+$digits',
     'aliasEmail': 'phone-$digits@moona.local',
   };
+}
+
+String stripNationalTrunkAfterCountryCode(
+  String digits, {
+  String defaultCountryCode = '966',
+}) {
+  final trunkPrefix = '${defaultCountryCode}0';
+  if (!digits.startsWith(trunkPrefix)) return digits;
+  return '$defaultCountryCode${digits.substring(trunkPrefix.length)}';
+}
+
+List<String> phoneDigitLookupVariants(
+  Object? input, {
+  String defaultCountryCode = '966',
+}) {
+  final normalized = normalizePhone(
+    input,
+    defaultCountryCode: defaultCountryCode,
+  )['digits']
+      .toString();
+  final variants = <String>{normalized};
+  if (normalized.startsWith(defaultCountryCode)) {
+    final national = normalized.substring(defaultCountryCode.length);
+    if (national.isNotEmpty && !national.startsWith('0')) {
+      variants.add('${defaultCountryCode}0$national');
+    }
+  }
+  return variants.toList();
+}
+
+String _asciiDigits(String value) {
+  final buffer = StringBuffer();
+  for (final rune in value.runes) {
+    if (rune >= 0x0660 && rune <= 0x0669) {
+      buffer.writeCharCode(0x30 + rune - 0x0660);
+    } else if (rune >= 0x06F0 && rune <= 0x06F9) {
+      buffer.writeCharCode(0x30 + rune - 0x06F0);
+    } else {
+      buffer.writeCharCode(rune);
+    }
+  }
+  return buffer.toString();
 }
 
 String normalizeProductName(Object? input) => (input ?? '')

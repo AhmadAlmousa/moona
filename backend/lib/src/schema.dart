@@ -292,6 +292,14 @@ final appwriteSchema = AppwriteSchema(
             type: 'string', key: 'trashedByUserId', size: 64, required: false),
         AttributeSpec(
             type: 'string', key: 'trashReason', size: 64, required: false),
+        AttributeSpec(type: 'datetime', key: 'scratchedAt', required: false),
+        AttributeSpec(
+            type: 'datetime', key: 'scratchExpiresAt', required: false),
+        AttributeSpec(
+            type: 'string',
+            key: 'scratchedByUserId',
+            size: 64,
+            required: false),
         AttributeSpec(
             type: 'string', key: 'createdByUserId', size: 64, required: true),
         AttributeSpec(
@@ -312,6 +320,10 @@ final appwriteSchema = AppwriteSchema(
             key: 'owner_trash',
             type: 'key',
             attributes: ['ownerId', 'status', 'trashedAt']),
+        IndexSpec(
+            key: 'owner_scratch',
+            type: 'key',
+            attributes: ['ownerId', 'status', 'scratchExpiresAt']),
       ],
     ),
     TableSpec(
@@ -346,6 +358,78 @@ final appwriteSchema = AppwriteSchema(
             key: 'owner_status',
             type: 'key',
             attributes: ['ownerId', 'status']),
+      ],
+    ),
+    TableSpec(
+      id: CollectionIds.listEvents,
+      name: 'List Events',
+      rowSecurity: true,
+      attributes: [
+        AttributeSpec(type: 'string', key: 'ownerId', size: 64, required: true),
+        AttributeSpec(type: 'string', key: 'actorId', size: 64, required: true),
+        AttributeSpec(
+            type: 'enum',
+            key: 'type',
+            elements: [
+              'added',
+              'edited',
+              'scratched',
+              'deleted',
+              'restored',
+              'cleared',
+              'share_accepted',
+              'share_revoked',
+            ],
+            required: true),
+        AttributeSpec(type: 'string', key: 'itemId', size: 64, required: false),
+        AttributeSpec(
+            type: 'string', key: 'productId', size: 64, required: false),
+        AttributeSpec(
+            type: 'string', key: 'productName', size: 256, required: false),
+        AttributeSpec(
+            type: 'string', key: 'productNameAr', size: 256, required: false),
+        AttributeSpec(
+            type: 'string', key: 'productNameEn', size: 256, required: false),
+        AttributeSpec(type: 'float', key: 'count', required: false),
+        AttributeSpec(type: 'string', key: 'unitId', size: 64, required: false),
+        AttributeSpec(type: 'string', key: 'brand', size: 128, required: false),
+        AttributeSpec(
+            type: 'string', key: 'seller', size: 128, required: false),
+        AttributeSpec(
+            type: 'string', key: 'categoryId', size: 64, required: false),
+        AttributeSpec(type: 'boolean', key: 'important', required: false),
+        AttributeSpec(type: 'integer', key: 'clearedCount', required: false),
+        AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
+      ],
+      indexes: [
+        IndexSpec(
+            key: 'owner_created',
+            type: 'key',
+            attributes: ['ownerId', 'createdAt'],
+            orders: ['asc', 'desc']),
+        IndexSpec(
+            key: 'owner_type_created',
+            type: 'key',
+            attributes: ['ownerId', 'type', 'createdAt'],
+            orders: ['asc', 'asc', 'desc']),
+      ],
+    ),
+    TableSpec(
+      id: CollectionIds.shoppingPresence,
+      name: 'Shopping Presence',
+      rowSecurity: true,
+      attributes: [
+        AttributeSpec(type: 'string', key: 'ownerId', size: 64, required: true),
+        AttributeSpec(type: 'string', key: 'actorId', size: 64, required: true),
+        AttributeSpec(type: 'datetime', key: 'activeAt', required: true),
+        AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
+      ],
+      indexes: [
+        IndexSpec(
+            key: 'owner_active',
+            type: 'key',
+            attributes: ['ownerId', 'activeAt']),
+        IndexSpec(key: 'actor_unique', type: 'unique', attributes: ['actorId']),
       ],
     ),
   ],

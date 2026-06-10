@@ -32,6 +32,7 @@ class AppwriteRepository {
       : adminDatabases = TablesDBAdapter(TablesDB(adminClient)),
         adminStorage = StorageAdapter(Storage(adminClient)),
         adminTokens = TokensAdapter(Tokens(adminClient)),
+        adminMessaging = MessagingAdapter(Messaging(adminClient)),
         users = UsersAdapter(Users(adminClient)),
         userDatabases =
             userClient == null ? null : TablesDBAdapter(TablesDB(userClient));
@@ -39,6 +40,7 @@ class AppwriteRepository {
   final TablesDBAdapter adminDatabases;
   final StorageAdapter adminStorage;
   final TokensAdapter adminTokens;
+  final MessagingAdapter adminMessaging;
   final UsersAdapter users;
   final TablesDBAdapter? userDatabases;
 
@@ -119,14 +121,11 @@ class AppwriteRepository {
       );
 
   Future<JsonMap?> findProfileByPhone(Object? phone) async {
-    final normalized = normalizePhone(phone);
+    final digits = phoneDigitLookupVariants(phone);
     final result = await adminDatabases.listDocuments(
       databaseId: databaseId,
       collectionId: CollectionIds.profiles,
-      queries: [
-        Query.equal('phoneDigits', normalized['digits']),
-        Query.limit(1)
-      ],
+      queries: [Query.equal('phoneDigits', digits), Query.limit(1)],
     );
     return result.documents.firstOrNull;
   }
@@ -135,8 +134,14 @@ class AppwriteRepository {
     Iterable<String> phoneDigits,
   ) async {
     final uniqueDigits = phoneDigits
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
+        .expand((value) {
+          try {
+            return phoneDigitLookupVariants(value);
+          } catch (_) {
+            final trimmed = value.trim();
+            return trimmed.isEmpty ? const <String>[] : [trimmed];
+          }
+        })
         .toSet()
         .toList();
     if (uniqueDigits.isEmpty) return const [];
@@ -252,6 +257,30 @@ class AppwriteRepository {
         Query.orderDesc('trashedAt'),
       ]);
 
+  Future<List<JsonMap>> listEvents(
+    Object? ownerId, {
+    int limit = 50,
+    String? cursor,
+    List<String>? types,
+    DateTime? since,
+  }) async {
+    final queries = <String>[
+      Query.equal('ownerId', ownerId),
+      if (types != null && types.isNotEmpty) Query.equal('type', types),
+      if (since != null)
+        Query.greaterThanEqual('createdAt', since.toIso8601String()),
+      Query.orderDesc('createdAt'),
+      Query.limit(limit),
+      if ((cursor ?? '').isNotEmpty) Query.cursorAfter(cursor!),
+    ];
+    final page = await adminDatabases.listDocuments(
+      databaseId: databaseId,
+      collectionId: CollectionIds.listEvents,
+      queries: queries,
+    );
+    return page.documents;
+  }
+
   Future<JsonMap> getListItem(Object? itemId) => adminDatabases.getDocument(
         databaseId: databaseId,
         collectionId: CollectionIds.listItems,
@@ -269,6 +298,21 @@ class AppwriteRepository {
         data: data,
         permissions:
             listItemPermissions(data['ownerId'].toString(), ownerShares),
+      );
+
+  Future<JsonMap> createListEvent(
+    JsonMap data, [
+    List<JsonMap> ownerShares = const [],
+  ]) =>
+      adminDatabases.createDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.listEvents,
+        documentId: ID.unique(),
+        data: data,
+        permissions: eventPermissions(
+          data['ownerId'].toString(),
+          ownerShares,
+        ),
       );
 
   Future<JsonMap> updateListItem(
@@ -369,6 +413,62 @@ class AppwriteRepository {
     }
   }
 
+  Future<List<JsonMap>> listShoppingPresence(Object? ownerId) =>
+      listAllDocuments(adminDatabases, CollectionIds.shoppingPresence, [
+        Query.equal('ownerId', ownerId),
+        Query.orderDesc('activeAt'),
+      ]);
+
+  Future<JsonMap> upsertShoppingPresence(
+    Object? actorId,
+    JsonMap data, [
+    List<JsonMap> ownerShares = const [],
+  ]) async {
+    final id = actorId.toString();
+    try {
+      await adminDatabases.getDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.shoppingPresence,
+        documentId: id,
+      );
+      return adminDatabases.updateDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.shoppingPresence,
+        documentId: id,
+        data: data,
+        permissions: presencePermissions(
+          data['ownerId'].toString(),
+          ownerShares,
+        ),
+      );
+    } catch (error) {
+      if (!isMissing(error)) rethrow;
+    }
+
+    return adminDatabases.createDocument(
+      databaseId: databaseId,
+      collectionId: CollectionIds.shoppingPresence,
+      documentId: id,
+      data: data,
+      permissions: presencePermissions(
+        data['ownerId'].toString(),
+        ownerShares,
+      ),
+    );
+  }
+
+  Future<void> deleteShoppingPresence(Object? actorId) async {
+    try {
+      await adminDatabases.deleteDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.shoppingPresence,
+        documentId: actorId.toString(),
+      );
+    } catch (error) {
+      if (!isMissing(error)) rethrow;
+    }
+  }
+
   Future<dynamic> updateImagePermissions(
     Object? fileId,
     Object? ownerId, [
@@ -427,6 +527,24 @@ class AppwriteRepository {
       expire: expire,
     );
     return (token.toMap() as Map).cast<String, dynamic>();
+  }
+
+  Future<void> sendPush({
+    required List<String> userIds,
+    String? title,
+    String? body,
+    JsonMap data = const {},
+  }) async {
+    if (Platform.environment['MOONA_PUSH_ENABLED'] != 'true') return;
+    final users = userIds.where((id) => id.isNotEmpty).toSet().toList();
+    if (users.isEmpty) return;
+    await adminMessaging.createPush(
+      messageId: ID.unique(),
+      title: title,
+      body: body,
+      users: users,
+      data: data,
+    );
   }
 
   Future<List<JsonMap>> adminList(Object? kind) {
@@ -600,6 +718,32 @@ List<String> listItemPermissions(
     ...acceptedViewerIdsForOwner(ownerId, ownerShares),
   ];
   return participants.expand(readWritePermissions).toList();
+}
+
+List<String> eventPermissions(
+  String ownerId, [
+  List<JsonMap> ownerShares = const [],
+]) {
+  final participants = [
+    ownerId,
+    ...acceptedViewerIdsForOwner(ownerId, ownerShares),
+  ];
+  return participants
+      .map((userId) => Permission.read(Role.user(userId)))
+      .toList();
+}
+
+List<String> presencePermissions(
+  String ownerId, [
+  List<JsonMap> ownerShares = const [],
+]) {
+  final participants = [
+    ownerId,
+    ...acceptedViewerIdsForOwner(ownerId, ownerShares),
+  ];
+  return participants
+      .map((userId) => Permission.read(Role.user(userId)))
+      .toList();
 }
 
 List<String> filePermissions(
@@ -858,6 +1002,27 @@ class TokensAdapter {
         bucketId: bucketId,
         fileId: fileId,
         expire: expire,
+      );
+}
+
+class MessagingAdapter {
+  MessagingAdapter(this.messaging);
+
+  final Messaging messaging;
+
+  Future<dynamic> createPush({
+    required String messageId,
+    String? title,
+    String? body,
+    List<String>? users,
+    JsonMap data = const {},
+  }) =>
+      messaging.createPush(
+        messageId: messageId,
+        title: title,
+        body: body,
+        users: users,
+        data: data,
       );
 }
 

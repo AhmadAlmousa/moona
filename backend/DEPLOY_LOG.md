@@ -1,5 +1,79 @@
 # Moona Backend — Deploy Log
 
+## 2026-06-09 — Phase B correction + gated push send points
+
+Redeployed `moonaApi` with the Phase B contract correction and push send-on-event
+points.
+
+Code changes in this deployment:
+- `getInsights.byDayOfWeek` is Sunday-first (`0 = Sunday ... 6 = Saturday`).
+- `getInsights.topProducts[]` now emits `count` instead of `purchaseCount`.
+- Gated best-effort push sends are wired for share requested, share accepted,
+  item added/edited on shared lists, and fresh shopping-presence starts.
+- Presence heartbeats do not re-notify; stale presence rows reset `activeAt`
+  when treated as a fresh shopping start.
+
+Validation before deploy:
+- Backend analyzer: no errors.
+- Backend tests: 29/29 passed.
+
+Deployment result:
+- Active deployment: `6a27ba5da1f0974bb1a2`
+- Created: `2026-06-09T07:01:49.782+00:00`
+- Runtime: `dart-3.1`
+- Entrypoint: `lib/main.dart`
+- Status: `ready`, function `live: true`
+- Build size: ~2.79 MB
+- Function scopes still include `messages.write`.
+
+Smoke verification:
+- A no-auth execution with body
+  `{"action":"getInsights","rangeDays":90}` completed against deployment
+  `6a27ba5da1f0974bb1a2` and returned the expected
+  `{"ok":false,"error":{"code":"unauthorized",...}}`.
+- That verifies the live dispatcher is serving the new build.
+
+## 2026-06-09 — Feature-plan backend provisioning/redeploy
+
+Provisioned and redeployed the backend pass for `feature_plan.md`: item
+attribution enrichment, event backbone/history actions, backend-owned scratch
+state, shopping presence, and push-ready function scope.
+
+Validation before live writes:
+- Backend analyzer: no errors.
+- Backend tests: 26/26 passed.
+
+Provisioning:
+- Ran `dart run bin/provision.dart` against the Appwrite Cloud project.
+- Added `list_items.scratchedAt`, `list_items.scratchExpiresAt`, and
+  `list_items.scratchedByUserId`.
+- Created `list_events` and `shopping_presence`.
+- Verified `list_items.owner_scratch` is available.
+- Verified the project now has 8 TablesDB tables.
+
+Deployment result:
+- Active deployment: `6a27b3b63f2951eb1502`
+- Created: `2026-06-09T06:33:26.374+00:00`
+- Runtime: `dart-3.1`
+- Entrypoint: `lib/main.dart`
+- Status: `ready`, function `live: true`
+- Build size: ~2.79 MB
+- Function scopes include `messages.write`.
+
+Smoke verification:
+- A no-auth execution with body
+  `{"action":"getActivity","limit":1}` completed against deployment
+  `6a27b3b63f2951eb1502` and returned the expected
+  `{"ok":false,"error":{"code":"unauthorized",...}}`.
+- That verifies the live dispatcher recognizes a new feature-plan action.
+
+Tooling fixes made during deploy:
+- `bin/provision.dart` now tolerates Appwrite Cloud returning
+  `additional_resource_not_allowed` for the already-existing database or storage
+  bucket after fetching and confirming the configured resource exists.
+- `scripts/deploy_function.sh` now keeps `messages.write` in the function scope
+  list so future CLI deploys do not strip the push-ready scope.
+
 ## 2026-06-05 — Contact discovery / token-scope redeploy
 
 Redeployed `moonaApi` with the current Dart backend code so the

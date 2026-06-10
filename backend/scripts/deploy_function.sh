@@ -65,7 +65,7 @@ appwrite functions update \
   --execute users \
   --scopes databases.read tables.read rows.read rows.write \
            users.read users.write buckets.read files.read files.write \
-           tokens.write
+           tokens.write messages.write
 
 # Upload code and activate on successful build.
 appwrite functions create-deployment \

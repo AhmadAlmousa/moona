@@ -44,12 +44,19 @@ Future<void> provision(
 }
 
 Future<void> ensureDatabase(TablesDB tablesDB) async {
-  await ignoreConflict(
-    () => tablesDB.create(
-      databaseId: appwriteSchema.databaseId,
-      name: appwriteSchema.databaseName,
-    ),
-  );
+  try {
+    await ignoreConflict(
+      () => tablesDB.create(
+        databaseId: appwriteSchema.databaseId,
+        name: appwriteSchema.databaseName,
+      ),
+    );
+  } catch (error) {
+    if (!isAdditionalResourceLimit(error)) rethrow;
+
+    final existing = await tablesDB.get(databaseId: appwriteSchema.databaseId);
+    if (existing.$id != appwriteSchema.databaseId) rethrow;
+  }
 }
 
 Future<void> ensureTable(TablesDB tablesDB, TableSpec table) async {
@@ -160,17 +167,24 @@ Future<void> ensureIndexes(TablesDB tablesDB, TableSpec table) async {
 
 Future<void> ensureBucket(Storage storage) async {
   final bucket = appwriteSchema.bucket;
-  await ignoreConflict(
-    () => storage.createBucket(
-      bucketId: bucket.id,
-      name: bucket.name,
-      permissions: [],
-      fileSecurity: bucket.fileSecurity,
-      enabled: bucket.enabled,
-      maximumFileSize: bucket.maximumFileSize,
-      allowedFileExtensions: bucket.allowedFileExtensions,
-    ),
-  );
+  try {
+    await ignoreConflict(
+      () => storage.createBucket(
+        bucketId: bucket.id,
+        name: bucket.name,
+        permissions: [],
+        fileSecurity: bucket.fileSecurity,
+        enabled: bucket.enabled,
+        maximumFileSize: bucket.maximumFileSize,
+        allowedFileExtensions: bucket.allowedFileExtensions,
+      ),
+    );
+  } catch (error) {
+    if (!isAdditionalResourceLimit(error)) rethrow;
+
+    final existing = await storage.getBucket(bucketId: bucket.id);
+    if (existing.$id != bucket.id) rethrow;
+  }
 }
 
 Future<void> seedCatalogs(TablesDB tablesDB) async {
@@ -332,6 +346,14 @@ bool isConflict(Object error) {
   return false;
 }
 
+bool isAdditionalResourceLimit(Object error) {
+  if (error is AppwriteException) {
+    return error.code == 403 &&
+        (error.type ?? '') == 'additional_resource_not_allowed';
+  }
+  return false;
+}
+
 Map<String, dynamic> removeId(Map<String, dynamic> document) {
   final copy = {...document};
   copy.remove('id');
@@ -410,4 +432,5 @@ const functionScopes = [
   ProjectKeyScopes.filesRead,
   ProjectKeyScopes.filesWrite,
   ProjectKeyScopes.tokensWrite,
+  ProjectKeyScopes.messagesWrite,
 ];

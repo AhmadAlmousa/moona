@@ -58,30 +58,60 @@ Future<JsonMap> getBootstrapData({
   final profile = asMap(await repo.getProfile(actorId));
   final viewerShares = listOfMaps(await repo.listSharesForViewer(actorId));
   final ownerId = listOwnerForViewer(profile, viewerShares);
+  await finalizeExpiredScratchesForOwner(repo, ownerId);
   final categories = listOfMaps(await repo.listCategories());
   final units = listOfMaps(await repo.listUnits());
   final products = listOfMaps(await repo.listProducts());
   final items = listOfMaps(await repo.listActiveItems(ownerId));
   final trash = listOfMaps(await repo.listTrashItems(ownerId));
   final shares = listOfMaps(await repo.listSharesForParticipant(actorId));
+  final presence = listOfMaps(await repo.listShoppingPresence(ownerId));
   final profiles = await profileLookup(repo, [
     actorId,
     ownerId,
     ...shareParticipantIds(shares),
+    ...presence.map((item) => item['actorId']),
+    ...items.expand(
+      (item) => [
+        item['createdByUserId'],
+        item['updatedByUserId'],
+        item['scratchedByUserId'],
+      ],
+    ),
     ...trash.map((item) => item['trashedByUserId']),
+    ...trash.expand(
+      (item) => [
+        item['createdByUserId'],
+        item['updatedByUserId'],
+        item['scratchedByUserId'],
+      ],
+    ),
   ]);
   final enrichedShares = shares
       .map((share) => withCounterpartyProfile(actorId, share, profiles))
       .toList();
-  final enrichedTrash =
-      trash.map((item) => withTrashActorDisplayName(item, profiles)).toList();
+  final enrichedItems =
+      items.map((item) => withActorDisplayNames(item, profiles)).toList();
+  final enrichedTrash = trash
+      .map((item) => withActorDisplayNames(item, profiles))
+      .map((item) => withTrashActorDisplayName(item, profiles))
+      .toList();
+  final enrichedPresence = presence
+      .map((item) => withPresenceActorDisplayName(item, profiles))
+      .toList();
+  final suggestions = await purchaseSuggestionsForOwner(
+    repo,
+    ownerId,
+    activeItems: items,
+    limit: 6,
+  );
 
   return {
     'profile': profile,
     'visibleList': {
       'ownerId': ownerId,
       'isShared': ownerId != actorId,
-      'items': sortListItems(items),
+      'items': sortListItems(enrichedItems),
       'trash': sortTrashItems(enrichedTrash),
     },
     'catalogs': {
@@ -91,6 +121,8 @@ Future<JsonMap> getBootstrapData({
     },
     'sharing': sharingStatus(actorId, profile, enrichedShares),
     'profiles': profiles,
+    'shoppingPresence': enrichedPresence,
+    'suggestions': {'items': suggestions},
   };
 }
 
@@ -143,12 +175,15 @@ Future<JsonMap> lookupContacts({
 
   final profiles = listOfMaps(
     await repo.listProfilesByPhoneDigits(
-      normalized.map((entry) => entry['phoneDigits'].toString()),
+      normalized.expand((entry) {
+        return phoneDigitLookupVariants(entry['phoneDigits']);
+      }),
     ),
   );
   final profilesByDigits = {
     for (final profile in profiles)
-      (profile['phoneDigits'] ?? '').toString(): profile,
+      if (profileLookupDigits(profile) != null)
+        profileLookupDigits(profile)!: profile,
   };
 
   final contacts = normalized.map((entry) {
@@ -196,6 +231,25 @@ Future<JsonMap> createItem({
         data['imageFileId'], ownerId, ownerShares);
   }
 
+  await appendListEvent(
+    repo,
+    ownerId: ownerId,
+    actorId: actorId,
+    type: 'added',
+    item: item,
+    product: product,
+    ownerShares: ownerShares,
+  );
+  await sendListMutationPush(
+    repo,
+    ownerId: ownerId,
+    actorId: actorId,
+    type: 'item_added',
+    item: item,
+    product: product,
+    ownerShares: ownerShares,
+  );
+
   return {'item': item};
 }
 
@@ -235,6 +289,26 @@ Future<JsonMap> updateItem({
         patch['imageFileId'], item['ownerId'], ownerShares);
   }
 
+  final eventProduct = await productForEvent(repo, productId);
+  await appendListEvent(
+    repo,
+    ownerId: item['ownerId'].toString(),
+    actorId: actorId,
+    type: 'edited',
+    item: updated,
+    product: eventProduct,
+    ownerShares: ownerShares,
+  );
+  await sendListMutationPush(
+    repo,
+    ownerId: item['ownerId'].toString(),
+    actorId: actorId,
+    type: 'item_edited',
+    item: updated,
+    product: eventProduct,
+    ownerShares: ownerShares,
+  );
+
   return {'item': updated};
 }
 
@@ -251,12 +325,23 @@ Future<JsonMap> trashItem({
       listOfMaps(await repo.listAcceptedSharesForOwner(item['ownerId']));
   assertCanMutateOwnerList(actorId, item['ownerId'].toString(), ownerShares);
 
+  final reason = (payload['reason'] ?? 'scratch_timer').toString();
   final updated = asMap(
     await repo.updateListItem(
       documentId(item),
-      trashPatch(actorId, (payload['reason'] ?? 'scratch_timer').toString()),
+      trashPatch(actorId, reason),
       item['ownerId'],
     ),
+  );
+
+  await appendListEvent(
+    repo,
+    ownerId: item['ownerId'].toString(),
+    actorId: actorId,
+    type: reason == 'scratch_timer' ? 'scratched' : 'deleted',
+    item: updated,
+    product: await productForEvent(repo, item['productId']),
+    ownerShares: ownerShares,
   );
 
   return {'item': updated};
@@ -291,6 +376,16 @@ Future<JsonMap> restoreTrashItem({
     ),
   );
 
+  await appendListEvent(
+    repo,
+    ownerId: item['ownerId'].toString(),
+    actorId: actorId,
+    type: 'restored',
+    item: updated,
+    product: await productForEvent(repo, item['productId']),
+    ownerShares: ownerShares,
+  );
+
   return {'item': updated};
 }
 
@@ -309,6 +404,15 @@ Future<JsonMap> clearTrash({
   for (final item in trash) {
     await repo.deleteListItem(documentId(item));
   }
+
+  await appendListEvent(
+    repo,
+    ownerId: ownerId,
+    actorId: actorId,
+    type: 'cleared',
+    clearedCount: trash.length,
+    ownerShares: ownerShares,
+  );
 
   return {'deletedCount': trash.length};
 }
@@ -350,6 +454,19 @@ Future<JsonMap> requestShare({
         )
       : asMap(await repo.createShare(data));
 
+  await sendPushSafely(
+    repo,
+    userIds: [viewerId],
+    title: 'Moona',
+    body:
+        '${displayNameFromProfile(ownerProfile, 'Someone')} shared a list with you.',
+    data: {
+      'type': 'share_requested',
+      'ownerId': actorId,
+      'shareId': documentId(share),
+    },
+  );
+
   return {
     'owner': ownerProfile,
     'viewer': viewerProfile,
@@ -367,15 +484,16 @@ Future<JsonMap> respondShare({
   if (share == null) throw notFound('Share');
 
   final accepted = payload['accepted'] == true;
+  JsonMap? viewerProfile;
   if (accepted) {
-    final profile = asMap(await repo.getProfile(actorId));
+    viewerProfile = asMap(await repo.getProfile(actorId));
     final viewerShares = listOfMaps(await repo.listSharesForViewer(actorId));
     final acceptedOther = viewerShares.where((item) {
       return item['status'] == 'accepted' &&
           item['ownerId'] != share['ownerId'] &&
           documentId(item) != documentId(share);
     }).firstOrNull;
-    if ((profile['activeReceivedOwnerId'] ?? '').toString().isNotEmpty ||
+    if ((viewerProfile['activeReceivedOwnerId'] ?? '').toString().isNotEmpty ||
         acceptedOther != null) {
       throw MoonaError(
         ErrorCodes.viewerAlreadyReceiving,
@@ -395,6 +513,28 @@ Future<JsonMap> respondShare({
   if (accepted) {
     await repo.setActiveReceivedOwner(actorId, share['ownerId']);
     await repo.refreshOwnerPermissions(share['ownerId']);
+    await appendListEvent(
+      repo,
+      ownerId: share['ownerId'].toString(),
+      actorId: actorId,
+      type: 'share_accepted',
+      ownerShares: listOfMaps(
+        await repo.listAcceptedSharesForOwner(share['ownerId']),
+      ),
+    );
+    await sendPushSafely(
+      repo,
+      userIds: [share['ownerId'].toString()],
+      title: 'Moona',
+      body:
+          '${displayNameFromProfile(viewerProfile, 'Someone')} accepted your shared list.',
+      data: {
+        'type': 'share_accepted',
+        'ownerId': share['ownerId'].toString(),
+        'viewerId': actorId,
+        'shareId': documentId(updatedShare),
+      },
+    );
   }
 
   return {'share': updatedShare};
@@ -419,6 +559,15 @@ Future<JsonMap> unlinkShare({
     await repo.setActiveReceivedOwner(share['viewerId'], '');
   }
   await repo.refreshOwnerPermissions(share['ownerId']);
+  await appendListEvent(
+    repo,
+    ownerId: share['ownerId'].toString(),
+    actorId: actorId,
+    type: 'share_revoked',
+    ownerShares: listOfMaps(
+      await repo.listAcceptedSharesForOwner(share['ownerId']),
+    ),
+  );
 
   return {'share': updatedShare};
 }
@@ -497,6 +646,231 @@ Future<JsonMap> createImageViewToken({
     'token': secret,
     'expire': token['expire'] ?? expire,
     'ttlSeconds': ttlSeconds,
+  };
+}
+
+Future<JsonMap> getActivity({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final ownerId = await visibleOwnerId(repo, actorId);
+  await finalizeExpiredScratchesForOwner(repo, ownerId);
+  final limit = intFrom(payload['limit'], fallback: 50).clamp(1, 100).toInt();
+  final cursor = (payload['cursor'] ?? '').toString();
+  final events = listOfMaps(
+    await repo.listEvents(
+      ownerId,
+      limit: limit,
+      cursor: cursor.isEmpty ? null : cursor,
+    ),
+  );
+  final profiles = await profileLookup(repo, events.map((e) => e['actorId']));
+  final enriched = events
+      .map((event) => withEventActorDisplayName(event, profiles))
+      .toList();
+  final nextCursor = events.length < limit ? '' : documentId(events.last);
+  return {'events': enriched, 'nextCursor': nextCursor, 'profiles': profiles};
+}
+
+Future<JsonMap> suggestItemsOperation({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final ownerId = await visibleOwnerId(repo, actorId);
+  await finalizeExpiredScratchesForOwner(repo, ownerId);
+  final activeItems = listOfMaps(await repo.listActiveItems(ownerId));
+  final limit = intFrom(payload['limit'], fallback: 20).clamp(1, 50).toInt();
+  return {
+    'suggestions': await purchaseSuggestionsForOwner(
+      repo,
+      ownerId,
+      activeItems: activeItems,
+      limit: limit,
+    ),
+  };
+}
+
+Future<JsonMap> getInsights({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final ownerId = await visibleOwnerId(repo, actorId);
+  await finalizeExpiredScratchesForOwner(repo, ownerId);
+  final rangeDays =
+      intFrom(payload['rangeDays'], fallback: 90).clamp(7, 365).toInt();
+  final since = DateTime.now().toUtc().subtract(Duration(days: rangeDays));
+  final events = listOfMaps(
+    await repo.listEvents(
+      ownerId,
+      limit: 1000,
+      types: const ['scratched'],
+      since: since,
+    ),
+  );
+  return {'insights': buildInsights(events: events, rangeDays: rangeDays)};
+}
+
+Future<JsonMap> scratchItem({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final item = asNullableMap(await repo.getListItem(payload['itemId']));
+  if (item == null) throw notFound('List item');
+
+  final ownerShares =
+      listOfMaps(await repo.listAcceptedSharesForOwner(item['ownerId']));
+  assertCanMutateOwnerList(actorId, item['ownerId'].toString(), ownerShares);
+
+  if (isScratchExpired(item)) {
+    return {
+      'item': await finalizeScratchDocument(
+        repo,
+        item,
+        fallbackActorId: actorId,
+        ownerShares: ownerShares,
+      ),
+    };
+  }
+
+  final windowSeconds =
+      intFrom(payload['windowSeconds'], fallback: 10).clamp(3, 120).toInt();
+  final updated = asMap(
+    await repo.updateListItem(
+      documentId(item),
+      scratchPatch(actorId, windowSeconds: windowSeconds),
+      item['ownerId'],
+    ),
+  );
+
+  return {'item': updated};
+}
+
+Future<JsonMap> undoScratchItem({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final item = asNullableMap(await repo.getListItem(payload['itemId']));
+  if (item == null) throw notFound('List item');
+
+  final ownerShares =
+      listOfMaps(await repo.listAcceptedSharesForOwner(item['ownerId']));
+  assertCanMutateOwnerList(actorId, item['ownerId'].toString(), ownerShares);
+
+  if (isScratchExpired(item)) {
+    return {
+      'item': await finalizeScratchDocument(
+        repo,
+        item,
+        fallbackActorId: actorId,
+        ownerShares: ownerShares,
+      ),
+    };
+  }
+  if (!hasScratch(item)) return {'item': item};
+
+  final updated = asMap(
+    await repo.updateListItem(
+      documentId(item),
+      undoScratchPatch(actorId),
+      item['ownerId'],
+    ),
+  );
+  return {'item': updated};
+}
+
+Future<JsonMap> finalizeScratch({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final item = asNullableMap(await repo.getListItem(payload['itemId']));
+  if (item == null) throw notFound('List item');
+
+  final ownerShares =
+      listOfMaps(await repo.listAcceptedSharesForOwner(item['ownerId']));
+  assertCanMutateOwnerList(actorId, item['ownerId'].toString(), ownerShares);
+
+  return {
+    'item': await finalizeScratchDocument(
+      repo,
+      item,
+      fallbackActorId: actorId,
+      ownerShares: ownerShares,
+      force: payload['force'] == true,
+    ),
+  };
+}
+
+Future<JsonMap> setShoppingPresence({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final active = payload['active'] == true;
+  if (!active) {
+    await repo.deleteShoppingPresence(actorId);
+    return {'presence': null};
+  }
+
+  final ownerId = await visibleOwnerId(repo, actorId);
+  final ownerShares =
+      listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
+  assertCanReadOwnerList(actorId, ownerId, ownerShares);
+  final currentPresence = listOfMaps(await repo.listShoppingPresence(ownerId));
+  final previousPresence = currentPresence.where((item) {
+    return item['actorId'] == actorId;
+  }).firstOrNull;
+  final now = DateTime.now().toUtc();
+  final nowString = now.toIso8601String();
+  final notifyStart = shouldNotifyShoppingStart(previousPresence, now);
+  final presence = asMap(
+    await repo.upsertShoppingPresence(
+      actorId,
+      {
+        'ownerId': ownerId,
+        'actorId': actorId,
+        'activeAt': notifyStart
+            ? nowString
+            : previousPresence?['activeAt'] ?? nowString,
+        'updatedAt': nowString,
+      },
+      ownerShares,
+    ),
+  );
+  final profiles = await profileLookup(repo, [actorId]);
+  if (notifyStart) {
+    await sendPushSafely(
+      repo,
+      userIds: otherListParticipantIds(
+        ownerId: ownerId,
+        actorId: actorId,
+        ownerShares: ownerShares,
+      ),
+      title: 'Moona',
+      body:
+          '${displayNameFromProfile(profiles[actorId], 'Someone')} is shopping now.',
+      data: {
+        'type': 'shopping_started',
+        'ownerId': ownerId,
+        'actorId': actorId,
+      },
+    );
+  }
+  return {
+    'presence': withPresenceActorDisplayName(presence, profiles),
+    'profiles': profiles,
   };
 }
 
@@ -609,6 +983,13 @@ final operations = <String, Operation>{
   'unlinkShare': unlinkShare,
   'getSharingStatus': getSharingStatus,
   'createImageViewToken': createImageViewToken,
+  'getActivity': getActivity,
+  'suggestItems': suggestItemsOperation,
+  'getInsights': getInsights,
+  'scratchItem': scratchItem,
+  'undoScratchItem': undoScratchItem,
+  'finalizeScratch': finalizeScratch,
+  'setShoppingPresence': setShoppingPresence,
   'adminList': adminList,
   'adminCreate': adminCreate,
   'adminUpdate': adminUpdate,
@@ -616,6 +997,237 @@ final operations = <String, Operation>{
   'adminMergeSuggestions': adminMergeSuggestions,
   'adminMergeProducts': adminMergeProducts,
 };
+
+Future<void> finalizeExpiredScratchesForOwner(
+  dynamic repo,
+  String ownerId,
+) async {
+  final activeItems = listOfMaps(await repo.listActiveItems(ownerId));
+  final ownerShares =
+      listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
+  for (final item in activeItems) {
+    if (!isScratchExpired(item)) continue;
+    await finalizeScratchDocument(
+      repo,
+      item,
+      fallbackActorId: (item['updatedByUserId'] ?? ownerId).toString(),
+      ownerShares: ownerShares,
+    );
+  }
+}
+
+Future<JsonMap> finalizeScratchDocument(
+  dynamic repo,
+  JsonMap item, {
+  required String fallbackActorId,
+  List<JsonMap>? ownerShares,
+  bool force = false,
+}) async {
+  if (!force && !isScratchExpired(item)) return item;
+  if (!hasScratch(item)) return item;
+  if ((item['status'] ?? '').toString() == 'trash') return item;
+
+  final ownerId = (item['ownerId'] ?? '').toString();
+  final shares =
+      ownerShares ?? listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
+  final actorId = scratchActorId(item, fallbackActorId);
+  final updated = asMap(
+    await repo.updateListItem(
+      documentId(item),
+      trashPatch(actorId, 'scratch_timer'),
+      ownerId,
+    ),
+  );
+  await appendListEvent(
+    repo,
+    ownerId: ownerId,
+    actorId: actorId,
+    type: 'scratched',
+    item: updated,
+    product: await productForEvent(repo, item['productId']),
+    ownerShares: shares,
+  );
+  return updated;
+}
+
+Future<void> appendListEvent(
+  dynamic repo, {
+  required String ownerId,
+  required String actorId,
+  required String type,
+  JsonMap? item,
+  JsonMap? product,
+  int? clearedCount,
+  List<JsonMap>? ownerShares,
+}) async {
+  try {
+    final shares = ownerShares ??
+        listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
+    await repo.createListEvent(
+      buildListEventDocument(
+        ownerId: ownerId,
+        actorId: actorId,
+        type: type,
+        item: item,
+        product: product,
+        clearedCount: clearedCount,
+      ),
+      shares,
+    );
+  } catch (_) {
+    // Activity is durable metadata, but user-facing mutations should not roll
+    // back if an event append fails.
+  }
+}
+
+Future<void> sendListMutationPush(
+  dynamic repo, {
+  required String ownerId,
+  required String actorId,
+  required String type,
+  required JsonMap item,
+  required JsonMap? product,
+  required List<JsonMap> ownerShares,
+}) async {
+  final recipients = otherListParticipantIds(
+    ownerId: ownerId,
+    actorId: actorId,
+    ownerShares: ownerShares,
+  );
+  if (recipients.isEmpty) return;
+
+  final actorName = await displayNameForPush(repo, actorId);
+  final productName = productNameForPush(product, item);
+  final verb = type == 'item_added' ? 'added' : 'updated';
+  await sendPushSafely(
+    repo,
+    userIds: recipients,
+    title: 'Moona',
+    body: '$actorName $verb $productName.',
+    data: {
+      'type': type,
+      'ownerId': ownerId,
+      'actorId': actorId,
+      'itemId': documentId(item),
+      'productId':
+          (item['productId'] ?? product?['id'] ?? product?[r'$id']).toString(),
+    },
+  );
+}
+
+Future<void> sendPushSafely(
+  dynamic repo, {
+  required List<String> userIds,
+  String? title,
+  String? body,
+  JsonMap data = const {},
+}) async {
+  final recipients =
+      userIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+  if (recipients.isEmpty) return;
+  try {
+    await repo.sendPush(
+      userIds: recipients.toList(),
+      title: title,
+      body: body,
+      data: data,
+    );
+  } catch (_) {
+    // Push is a side effect layered on top of the mutation; it should not make
+    // the user's write fail if Messaging is disabled or temporarily unavailable.
+  }
+}
+
+List<String> otherListParticipantIds({
+  required String ownerId,
+  required String actorId,
+  required List<JsonMap> ownerShares,
+}) {
+  final recipients = <String>{};
+  if (ownerId != actorId) recipients.add(ownerId);
+  recipients.addAll(
+    acceptedViewerIdsForOwner(ownerId, ownerShares).where(
+      (viewerId) => viewerId != actorId,
+    ),
+  );
+  return recipients.toList();
+}
+
+Future<String> displayNameForPush(dynamic repo, String userId) async {
+  try {
+    return displayNameFromProfile(await repo.getProfile(userId), 'Someone');
+  } catch (_) {
+    return 'Someone';
+  }
+}
+
+String displayNameFromProfile(Object? profile, String fallback) {
+  if (profile is Map) {
+    final displayName = (profile['displayName'] ?? '').toString().trim();
+    if (displayName.isNotEmpty) return displayName;
+  }
+  return fallback;
+}
+
+String productNameForPush(JsonMap? product, JsonMap item) {
+  final value = (product?['displayName'] ??
+          product?['nameEn'] ??
+          product?['nameAr'] ??
+          item['productName'] ??
+          '')
+      .toString()
+      .trim();
+  return value.isEmpty ? 'an item' : value;
+}
+
+bool shouldNotifyShoppingStart(JsonMap? previousPresence, DateTime now) {
+  if (previousPresence == null) return true;
+  final updatedAt = DateTime.tryParse(
+    (previousPresence['updatedAt'] ?? previousPresence['activeAt'] ?? '')
+        .toString(),
+  );
+  if (updatedAt == null) return true;
+  return now.difference(updatedAt.toUtc()).inSeconds > 60;
+}
+
+Future<JsonMap?> productForEvent(dynamic repo, Object? productId) async {
+  final value = (productId ?? '').toString();
+  if (value.isEmpty) return null;
+  try {
+    return asNullableMap(await repo.getProduct(value));
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<List<JsonMap>> purchaseSuggestionsForOwner(
+  dynamic repo,
+  String ownerId, {
+  required List<JsonMap> activeItems,
+  required int limit,
+}) async {
+  try {
+    final since = DateTime.now().toUtc().subtract(const Duration(days: 365));
+    final events = listOfMaps(
+      await repo.listEvents(
+        ownerId,
+        limit: 1000,
+        types: const ['scratched'],
+        since: since,
+      ),
+    );
+    return suggestPurchaseItems(
+      events: events,
+      activeProductIds: activeItems
+          .map((item) => (item['productId'] ?? '').toString())
+          .where((id) => id.isNotEmpty)
+          .toSet(),
+      limit: limit,
+    );
+  } catch (_) {
+    return const [];
+  }
+}
 
 Future<String> visibleOwnerId(dynamic repo, String actorId) async {
   final profile = asMap(await repo.getProfile(actorId));
@@ -704,8 +1316,21 @@ JsonMap profileSummary(String userId, JsonMap profile) => {
       'userId': (profile['userId'] ?? userId).toString(),
       'displayName': (profile['displayName'] ?? '').toString(),
       'phone': (profile['phone'] ?? '').toString(),
-      'phoneDigits': (profile['phoneDigits'] ?? '').toString(),
+      'phoneDigits': profileLookupDigits(profile) ?? '',
     };
+
+String? profileLookupDigits(JsonMap profile) {
+  for (final value in [profile['phoneDigits'], profile['phone']]) {
+    final raw = (value ?? '').toString();
+    if (raw.isEmpty) continue;
+    try {
+      return normalizePhone(raw)['digits'].toString();
+    } catch (_) {
+      // Try the next stored representation.
+    }
+  }
+  return null;
+}
 
 JsonMap withCounterpartyProfile(
   String actorId,
