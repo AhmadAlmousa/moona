@@ -91,4 +91,26 @@ void main() {
       expect(normalizePhone(composed).digits, '966501112233');
     });
   });
+
+  group('extractDialCode', () {
+    test('returns the longest matching country code', () {
+      expect(extractDialCode('+966567631185'), '966');
+      expect(extractDialCode('+971501112233'), '971');
+      expect(extractDialCode('+201012345678'), '20');
+      expect(extractDialCode('+15551234567'), '1');
+    });
+
+    test('returns null for empty or unknown numbers', () {
+      expect(extractDialCode(''), isNull);
+      expect(extractDialCode('+99900000000'), isNull);
+    });
+
+    test("a wife's local number resolves to the husband's dial code", () {
+      // Husband registered with +966; entering 0567631185 must match the
+      // number she registered with (+966567631185).
+      final dial = extractDialCode('+966554888152')!;
+      expect(normalizePhone('0567631185', defaultCountryCode: dial).digits,
+          '966567631185');
+    });
+  });
 }

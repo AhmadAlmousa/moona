@@ -52,6 +52,95 @@ void main() {
     expect(result['item']['trashReason'], 'scratch_timer');
   });
 
+  test('editing a scratched item cancels the scratch (no surprise trashing)',
+      () async {
+    final repo = FakeRepo();
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk'},
+    );
+    final id = created['item'][r'$id'];
+
+    await scratchItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'itemId': id, 'windowSeconds': 10},
+    );
+    expect(repo.items[id]!['scratchExpiresAt'], isNotEmpty);
+
+    final edited = await updateItem(
+      repo: repo,
+      actorId: 'viewer',
+      payload: {'itemId': id, 'brand': 'Almarai'},
+    );
+
+    expect(edited['item']['brand'], 'Almarai');
+    expect(edited['item']['status'], 'active');
+    expect(edited['item']['scratchExpiresAt'], '');
+    expect(edited['item']['scratchedAt'], '');
+
+    // The lazy sweep must no longer trash the freshly edited item.
+    await finalizeExpiredScratchesForOwner(repo, 'owner');
+    expect(repo.items[id]!['status'], 'active');
+  });
+
+  test('re-adding a trashed product purges the stale trash row (Issue 6)',
+      () async {
+    final repo = FakeRepo();
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk'},
+    );
+    await trashItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'itemId': created['item'][r'$id'], 'reason': 'deleted'},
+    );
+    expect(await repo.listTrashItems('owner'), hasLength(1));
+
+    // Adding the same product again must clear the trashed copy.
+    await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'milk'},
+    );
+
+    expect(await repo.listTrashItems('owner'), isEmpty);
+    expect(await repo.listActiveItems('owner'), hasLength(1));
+  });
+
+  test('trashing a product keeps one trash row and drops older duplicates '
+      '(Issue 5)', () async {
+    final repo = FakeRepo();
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk'},
+    );
+    final productId = created['item']['productId'];
+    // Seed a stale trashed duplicate of the same product AFTER create (create
+    // itself purges trash), to exercise trashItem's keep-newest cleanup.
+    repo.items['old'] = {
+      r'$id': 'old',
+      'ownerId': 'owner',
+      'productId': productId,
+      'status': 'trash',
+      'trashedAt': '2026-06-01T00:00:00.000Z',
+    };
+
+    await trashItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'itemId': created['item'][r'$id'], 'reason': 'scratch_timer'},
+    );
+
+    final trash = await repo.listTrashItems('owner');
+    expect(trash, hasLength(1));
+    expect(trash.single[r'$id'], created['item'][r'$id']);
+  });
+
   test('requestShare rejects unknown target phone numbers', () async {
     final repo = FakeRepo();
 
@@ -114,6 +203,30 @@ void main() {
     final registered = result['registered'] as List<JsonMap>;
     expect(registered.single['registered'], isTrue);
     expect(registered.single['phoneDigits'], '966507654321');
+    expect(registered.single['userId'], 'viewer');
+  });
+
+  test('lookupContacts honors a caller-supplied defaultCountryCode', () async {
+    final repo = FakeRepo();
+    repo.profiles['viewer'] = {
+      ...repo.profiles['viewer']!,
+      'phone': '+971501112233',
+      'phoneDigits': '971501112233',
+    };
+
+    final result = await lookupContacts(
+      repo: repo,
+      actorId: 'owner',
+      payload: {
+        'phones': ['0501112233'],
+        'defaultCountryCode': '971',
+      },
+    );
+
+    final registered = result['registered'] as List<JsonMap>;
+    // The leading-zero local number normalizes against +971, not the +966
+    // default, and matches the viewer's UAE registration.
+    expect(registered.single['phoneDigits'], '971501112233');
     expect(registered.single['userId'], 'viewer');
   });
 

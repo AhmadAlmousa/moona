@@ -1,4 +1,5 @@
 import '../config.dart';
+import 'countries.dart';
 
 /// Result of normalizing a phone number into the canonical alias form.
 class NormalizedPhone {
@@ -90,6 +91,27 @@ String _asciiDigits(String value) {
 /// the typed number already begins with the selected dial code (e.g. they pasted
 /// the full `966…`), it is not prepended again — mirroring the backend
 /// `normalizePhone` heuristic so the two agree.
+/// The dial code (digits only, e.g. `966`) of a stored E.164 number, chosen by
+/// the longest known-country-code prefix. Returns null when [e164] is empty or
+/// matches no known country, so callers can fall back to their own default.
+///
+/// Used to make contact lookup and manual sharing "smart": a local number a
+/// user types (`0567…`) is normalized against *their own* country code rather
+/// than a hardcoded default, so it resolves to the same digits they registered.
+String? extractDialCode(String e164) {
+  final digits = _asciiDigits(e164).replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) return null;
+  String? best;
+  for (final country in kCountries) {
+    final code = country.dialCode;
+    if (digits.startsWith(code) &&
+        (best == null || code.length > best.length)) {
+      best = code;
+    }
+  }
+  return best;
+}
+
 String composeInternationalPhone(String dialCode, String localNumber) {
   final raw = localNumber.trim();
   if (raw.startsWith('+') || raw.startsWith('00')) return raw;

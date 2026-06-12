@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config.dart';
 import '../core/util/phone.dart';
+import '../data/cache/contacts_lookup_cache.dart';
 import '../data/models/models.dart';
 import '../data/repositories/moona_repository.dart';
 import '../features/push/push_notifications.dart';
@@ -22,6 +23,10 @@ class AppController extends Notifier<AppState> {
   final Map<String, Timer> _finalizeTimers = {};
   StreamSubscription<RealtimeChange>? _realtimeSub;
   bool _disposed = false;
+
+  /// On-device cache of the last contacts registration lookup, so the share
+  /// picker renders instantly while it refreshes in the background.
+  final ContactsLookupCache _contactsCache = const ContactsLookupCache();
 
   MoonaRepository get _repo => ref.read(repositoryProvider);
   PushNotifications get _push => ref.read(pushProvider);
@@ -121,6 +126,7 @@ class AppController extends Notifier<AppState> {
     // call needs to be authenticated). Best-effort — never blocks logout.
     await _push.unregister();
     await _repo.clearCache();
+    await _contactsCache.clear();
     await _repo.signOut();
     state = AppState(
       screen: AppScreen.login,
@@ -308,6 +314,10 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<bool> updateItem(String itemId, ItemFormData form) async {
+    // Editing an item cancels any in-flight scratch: drop the pending finalize
+    // timer so a scratched-then-edited item isn't trashed 10s later. The backend
+    // patch also clears the scratch fields, so the returned item is authoritative.
+    _finalizeTimers.remove(itemId)?.cancel();
     try {
       final updated = await _repo.updateItem(itemId, form);
       state = state.copyWith(
@@ -337,6 +347,24 @@ class AppController extends Notifier<AppState> {
       await _repo.trashItem(itemId, reason: 'deleted');
     } catch (_) {
       await refresh();
+    }
+  }
+
+  /// Commits Shopping-mode "collected" items as purchased in one pass: each is
+  /// moved to trash with the scratch reason so it still produces the purchase
+  /// signal (Buy-Again / Insights), exactly like a finalized check-off. Called
+  /// when the user leaves Shopping mode.
+  Future<void> checkoutCollected(Iterable<String> itemIds) async {
+    for (final id in itemIds) {
+      final item = _activeById(id);
+      if (item == null) continue;
+      _finalizeTimers.remove(id)?.cancel();
+      _applyTrash(item);
+      try {
+        await _repo.trashItem(id, reason: 'scratch_timer');
+      } catch (_) {
+        await refresh();
+      }
     }
   }
 
@@ -452,7 +480,13 @@ class AppController extends Notifier<AppState> {
     );
     state = state.copyWith(
       items: state.items.where((i) => i.id != item.id).toList(),
-      trash: [trashed, ...state.trash],
+      // Keep the newest trashed row per product (mirrors the backend de-dup) so
+      // trash never shows duplicates of the same item.
+      trash: [
+        trashed,
+        for (final t in state.trash)
+          if (t.id != item.id && t.productId != item.productId) t,
+      ],
     );
   }
 
@@ -478,6 +512,12 @@ class AppController extends Notifier<AppState> {
     _toast(state.t.restore);
     try {
       await _repo.restoreTrashItem(itemId);
+    } on MoonaException catch (e) {
+      // Most common case: an active item with the same product already exists,
+      // so the restore is rejected. Revert the optimistic move and say why
+      // instead of letting the item silently snap back to trash.
+      await refresh();
+      _toast(_messageFor(e));
     } catch (_) {
       await refresh();
     }
@@ -493,12 +533,28 @@ class AppController extends Notifier<AppState> {
   }
 
   // ── sharing ────────────────────────────────────────────────────────────
-  /// Resolves which of [phones] are registered Moona users. Phone numbers only —
-  /// device contact names stay on the device. Degrades to an empty result on
-  /// error so the picker can still offer manual entry.
+  /// The signed-in user's own dial code (e.g. `966`), derived from their phone,
+  /// so a local number typed without a country code resolves to the country they
+  /// registered with. Falls back to Saudi (`966`).
+  String get userDialCode => extractDialCode(state.profile?.phone ?? '') ?? '966';
+
+  /// Last cached contacts lookup (registration status), for instant first paint
+  /// of the share picker before the background refresh lands.
+  Future<ContactLookupResult?> cachedContacts() => _contactsCache.read();
+
+  /// Resolves which of [phones] are registered Moona users and caches the result
+  /// for next time. Phone numbers only — device contact names stay on the device.
+  /// Normalizes against the user's own [userDialCode] so leading-zero local
+  /// numbers match. Degrades to an empty result on error so the picker can still
+  /// offer manual entry.
   Future<ContactLookupResult> lookupContacts(List<String> phones) async {
     try {
-      return await _repo.lookupContacts(phones);
+      final result = await _repo.lookupContacts(
+        phones,
+        defaultCountryCode: userDialCode,
+      );
+      unawaited(_contactsCache.save(result));
+      return result;
     } catch (_) {
       return const ContactLookupResult();
     }

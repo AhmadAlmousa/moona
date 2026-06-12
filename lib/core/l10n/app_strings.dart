@@ -138,6 +138,18 @@ class AppStrings {
   String get storeModeDone => isArabic ? 'تم كل شيء!' : 'All done!';
   String get storeModeDoneSub =>
       isArabic ? 'كل الأصناف في السلة' : "Everything's in the cart";
+  String get storeModePickTitle =>
+      isArabic ? 'ماذا تتسوّق؟' : 'What are you shopping?';
+  String get storeModePickSub => isArabic
+      ? 'اختر متجراً أو قسماً، أو تسوّق كل شيء'
+      : 'Pick a store or category, or shop everything';
+  String get storeModeByStore => isArabic ? 'حسب المتجر' : 'By store';
+  String get storeModeByCategory => isArabic ? 'حسب القسم' : 'By category';
+  String get storeModeCollected => isArabic ? 'في السلة' : 'Collected';
+  String get storeModeFinish => isArabic ? 'إنهاء التسوّق' : 'Finish shopping';
+  String get syncContacts => isArabic ? 'تحديث جهات الاتصال' : 'Refresh contacts';
+  String storeModeFinishCount(int n) =>
+      isArabic ? 'إنهاء · $n في السلة' : 'Finish · $n collected';
 
   // bulk paste
   String get pasteList => isArabic ? 'لصق قائمة' : 'Paste a list';

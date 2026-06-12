@@ -137,11 +137,15 @@ class AppwriteMoonaRepository implements MoonaRepository {
   }
 
   @override
-  Future<ContactLookupResult> lookupContacts(List<String> phones) async {
+  Future<ContactLookupResult> lookupContacts(
+    List<String> phones, {
+    String defaultCountryCode = '966',
+  }) async {
     if (phones.isEmpty) return const ContactLookupResult();
     final data = await _call(MoonaFunctions.lookupContacts, {
       'phones': phones,
       'limit': 250,
+      'defaultCountryCode': defaultCountryCode,
     });
     return ContactLookupResult.fromJson(_asMap(data));
   }

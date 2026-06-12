@@ -358,14 +358,18 @@ class FakeMoonaRepository implements MoonaRepository {
   }
 
   @override
-  Future<ContactLookupResult> lookupContacts(List<String> phones) async {
+  Future<ContactLookupResult> lookupContacts(
+    List<String> phones, {
+    String defaultCountryCode = '966',
+  }) async {
     await _delay();
     final seen = <String>{};
     final entries = <ContactLookupEntry>[];
     for (final phone in phones) {
       final String digits;
       try {
-        digits = normalizePhone(phone).digits;
+        digits = normalizePhone(phone, defaultCountryCode: defaultCountryCode)
+            .digits;
       } catch (_) {
         continue; // Invalid numbers are reported in `invalid` by the live backend.
       }

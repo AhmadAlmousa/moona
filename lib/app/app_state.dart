@@ -294,6 +294,52 @@ class AppState {
     ];
   }
 
+  /// Ordered active items for Shopping mode, following the SAME order as the
+  /// main list (important pinned, active [sortKey], name tiebreak) but filtered
+  /// by the in-store selection ([categoryId] and/or [seller]) chosen on entry —
+  /// independent of the on-screen category/seller filters.
+  List<ListItem> storeModeItems({String? categoryId, String? seller}) {
+    final base = [
+      for (final i in items)
+        if ((categoryId == null || i.categoryId == categoryId) &&
+            (seller == null || i.seller.trim() == seller))
+          i,
+    ];
+    final indexed = [
+      for (var i = 0; i < base.length; i++) (item: base[i], index: i),
+    ];
+    indexed.sort((a, b) {
+      final byCompare = _compareItems(a.item, b.item);
+      return byCompare != 0 ? byCompare : a.index - b.index;
+    });
+    return [for (final e in indexed) e.item];
+  }
+
+  /// [storeModeItems] bucketed by the active sort key when [grouped] is on,
+  /// mirroring the main list's grouped view. Returns a single unlabelled group
+  /// when grouping is off, so callers can render headers conditionally.
+  List<ItemGroup> storeModeGroups({String? categoryId, String? seller}) {
+    final ordered = storeModeItems(categoryId: categoryId, seller: seller);
+    if (!grouped) {
+      return ordered.isEmpty
+          ? const []
+          : [ItemGroup(label: '', items: ordered)];
+    }
+    final buckets = <String, List<ListItem>>{};
+    for (final item in ordered) {
+      buckets.putIfAbsent(groupLabel(item), () => []).add(item);
+    }
+    final labels = buckets.keys.toList()
+      ..sort((a, b) {
+        if (a == t.ungrouped) return 1;
+        if (b == t.ungrouped) return -1;
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      });
+    return [
+      for (final label in labels) ItemGroup(label: label, items: buckets[label]!),
+    ];
+  }
+
   List<ListItem> get sortedTrash {
     final sorted = List.of(trash);
     sorted.sort((a, b) {

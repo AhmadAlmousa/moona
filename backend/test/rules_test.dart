@@ -121,6 +121,75 @@ void main() {
     expect(searchProducts(products, 'حلي').map((item) => item['id']), ['p2']);
   });
 
+  test('editing an item clears any in-flight scratch', () {
+    final existing = {
+      r'$id': 'i1',
+      'count': 1,
+      'status': 'active',
+      'scratchedAt': '2026-06-12T10:00:00.000Z',
+      'scratchExpiresAt': '2026-06-12T10:00:10.000Z',
+      'scratchedByUserId': 'viewer',
+    };
+
+    final patch = patchListItemDocument(existing, {'brand': 'Almarai'}, 'owner', 'p1');
+
+    expect(patch['brand'], 'Almarai');
+    expect(patch['scratchedAt'], '');
+    expect(patch['scratchExpiresAt'], '');
+    expect(patch['scratchedByUserId'], '');
+    expect(patch['updatedByUserId'], 'owner');
+  });
+
+  test('findDuplicateTrashItems returns every trashed row for a product', () {
+    final items = [
+      {r'$id': 'i1', 'ownerId': 'owner', 'productId': 'p1', 'status': 'trash'},
+      {r'$id': 'i2', 'ownerId': 'owner', 'productId': 'p1', 'status': 'trash'},
+      {r'$id': 'i3', 'ownerId': 'owner', 'productId': 'p1', 'status': 'active'},
+      {r'$id': 'i4', 'ownerId': 'other', 'productId': 'p1', 'status': 'trash'},
+    ];
+
+    expect(
+      findDuplicateTrashItems(items, 'owner', 'p1').map((i) => i[r'$id']),
+      ['i1', 'i2'],
+    );
+    expect(
+      findDuplicateTrashItems(items, 'owner', 'p1', 'i1').map((i) => i[r'$id']),
+      ['i2'],
+    );
+  });
+
+  test('dedupeTrashForDisplay hides active products and collapses duplicates',
+      () {
+    final active = [
+      {r'$id': 'a1', 'ownerId': 'owner', 'productId': 'p1', 'status': 'active'},
+    ];
+    final trash = [
+      {
+        r'$id': 't1',
+        'productId': 'p1',
+        'status': 'trash',
+        'trashedAt': '2026-06-12T10:00:00.000Z'
+      },
+      {
+        r'$id': 't2',
+        'productId': 'p2',
+        'status': 'trash',
+        'trashedAt': '2026-06-12T09:00:00.000Z'
+      },
+      {
+        r'$id': 't3',
+        'productId': 'p2',
+        'status': 'trash',
+        'trashedAt': '2026-06-12T11:00:00.000Z'
+      },
+    ];
+
+    final visible = dedupeTrashForDisplay(trash, active);
+
+    // p1 is active again → hidden; p2 collapses to the newest (t3).
+    expect(visible.map((i) => i[r'$id']), ['t3']);
+  });
+
   test('merge suggestions find near-duplicate product names', () {
     final products = [
       buildProductDocument({'displayName': 'Tomato'}, 'p1'),

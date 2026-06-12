@@ -51,13 +51,14 @@ class ContactPickerRow {
 @visibleForTesting
 List<ContactPickerRow> buildContactPickerRows(
   Iterable<ContactPickerDeviceContact> contacts,
-  ContactLookupResult result,
-) {
+  ContactLookupResult result, {
+  String defaultCountryCode = '966',
+}) {
   final localNames = <String, String>{};
   final orderedDigits = <String>[];
   final displayPhone = <String, String>{};
   for (final entry in contacts) {
-    final digits = _displayDigitsFor(entry);
+    final digits = _displayDigitsFor(entry, defaultCountryCode);
     if (digits == null) continue;
     if (!displayPhone.containsKey(digits)) {
       orderedDigits.add(digits);
@@ -108,11 +109,12 @@ List<ContactPickerRow> buildContactPickerRows(
 List<String> contactLookupPhones(
   Iterable<ContactPickerDeviceContact> contacts, {
   int limit = 250,
+  String defaultCountryCode = '966',
 }) {
   final seen = <String>{};
   final phones = <String>[];
   for (final entry in contacts) {
-    final digits = _normalizedDigitsFor(entry);
+    final digits = _normalizedDigitsFor(entry, defaultCountryCode);
     if (digits == null || !seen.add(digits)) continue;
     phones.add(
       entry.normalizedPhone?.trim().isNotEmpty == true
@@ -124,12 +126,15 @@ List<String> contactLookupPhones(
   return phones;
 }
 
-String? _normalizedDigitsFor(ContactPickerDeviceContact entry) {
+String? _normalizedDigitsFor(
+  ContactPickerDeviceContact entry, [
+  String defaultCountryCode = '966',
+]) {
   for (final candidate in [entry.normalizedPhone, entry.phone]) {
     final value = candidate?.trim();
     if (value == null || value.isEmpty) continue;
     try {
-      return normalizePhone(value).digits;
+      return normalizePhone(value, defaultCountryCode: defaultCountryCode).digits;
     } catch (_) {
       // Try the next representation.
     }
@@ -137,8 +142,11 @@ String? _normalizedDigitsFor(ContactPickerDeviceContact entry) {
   return null;
 }
 
-String? _displayDigitsFor(ContactPickerDeviceContact entry) {
-  final normalized = _normalizedDigitsFor(entry);
+String? _displayDigitsFor(
+  ContactPickerDeviceContact entry, [
+  String defaultCountryCode = '966',
+]) {
+  final normalized = _normalizedDigitsFor(entry, defaultCountryCode);
   if (normalized != null) return normalized;
   for (final candidate in [entry.normalizedPhone, entry.phone]) {
     final digits = candidate?.replaceAll(RegExp(r'\D'), '');
@@ -240,6 +248,28 @@ Future<ContactLoadResult> loadDeviceContacts() async {
   } catch (e) {
     debugPrint('Moona[contacts]: read failed: $e');
     return const ContactLoadResult(ContactLoadStatus.error, []);
+  }
+}
+
+/// Best-effort background refresh of the contacts registration cache on app
+/// start, so the share picker opens instantly *and* fresh. Permission-gated (it
+/// never prompts) and native-only — degrades silently elsewhere.
+Future<void> warmContactsCache(WidgetRef ref) async {
+  if (kIsWeb) return;
+  try {
+    // Only proceed if contacts access was already granted — do not prompt here.
+    if (!await Permission.contacts.isGranted) return;
+    final loaded = await loadDeviceContacts();
+    if (loaded.contacts.isEmpty) return;
+    final controller = ref.read(appControllerProvider.notifier);
+    final phones = contactLookupPhones(
+      loaded.contacts,
+      defaultCountryCode: controller.userDialCode,
+    );
+    if (phones.isEmpty) return;
+    await controller.lookupContacts(phones); // writes the cache on success
+  } catch (_) {
+    // Warm-up is best-effort; ignore failures.
   }
 }
 
@@ -385,6 +415,7 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
 
   List<ContactPickerRow> _rows = const [];
   bool _loading = true;
+  bool _syncing = false;
 
   @override
   void initState() {
@@ -398,33 +429,55 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
     super.dispose();
   }
 
+  /// Paints instantly from the cached registration status (so the picker never
+  /// blocks on a backend round-trip), then refreshes in the background.
   Future<void> _load() async {
     final contacts = widget.loaded.contacts;
-    final localRows = buildContactPickerRows(
-      contacts,
-      const ContactLookupResult(),
-    );
+    final controller = ref.read(appControllerProvider.notifier);
+    final cached = await controller.cachedContacts();
+    if (!mounted) return;
     setState(() {
-      _rows = localRows;
+      _rows = buildContactPickerRows(
+        contacts,
+        cached ?? const ContactLookupResult(),
+        defaultCountryCode: controller.userDialCode,
+      );
       _loading = false;
     });
+    await _refresh();
+  }
 
-    final phones = contactLookupPhones(contacts);
+  /// Re-checks registration status against the backend and updates the cache.
+  /// Triggered on open and by the manual sync button.
+  Future<void> _refresh() async {
+    final contacts = widget.loaded.contacts;
+    final controller = ref.read(appControllerProvider.notifier);
+    final phones = contactLookupPhones(
+      contacts,
+      defaultCountryCode: controller.userDialCode,
+    );
     if (phones.isEmpty) return;
-
-    final result = await ref
-        .read(appControllerProvider.notifier)
-        .lookupContacts(phones);
+    setState(() => _syncing = true);
+    final result = await controller.lookupContacts(phones);
     if (!mounted) return;
-
     setState(() {
-      _rows = buildContactPickerRows(contacts, result);
+      _rows = buildContactPickerRows(
+        contacts,
+        result,
+        defaultCountryCode: controller.userDialCode,
+      );
+      _syncing = false;
     });
   }
 
   void _share(String phone) {
     Navigator.of(context).pop();
-    ref.read(appControllerProvider.notifier).requestShare(phone);
+    final controller = ref.read(appControllerProvider.notifier);
+    // Normalize against the user's own country code so a local number typed
+    // without a country code (e.g. 0567…) resolves to what they registered with.
+    controller.requestShare(
+      composeInternationalPhone(controller.userDialCode, phone),
+    );
   }
 
   /// Convenience path: launch the OS contact picker (`ACTION_PICK`). The system
@@ -450,16 +503,22 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
     if (number == null || number.trim().isEmpty) return;
 
     final contact = ContactPickerDeviceContact(picked.fullName ?? '', number);
-    final phones = contactLookupPhones([contact]);
+    final controller = ref.read(appControllerProvider.notifier);
+    final phones = contactLookupPhones(
+      [contact],
+      defaultCountryCode: controller.userDialCode,
+    );
     var result = const ContactLookupResult();
     if (phones.isNotEmpty) {
-      result = await ref
-          .read(appControllerProvider.notifier)
-          .lookupContacts(phones);
+      result = await controller.lookupContacts(phones);
     }
     if (!mounted) return;
 
-    final newRows = buildContactPickerRows([contact], result);
+    final newRows = buildContactPickerRows(
+      [contact],
+      result,
+      defaultCountryCode: controller.userDialCode,
+    );
     setState(() {
       final existing = _rows.map((r) => r.phoneDigits).toSet();
       _rows = [
@@ -502,11 +561,24 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        MoonaField(
-          controller: _query,
-          placeholder: t.searchContacts,
-          onChanged: (_) => setState(() {}),
-          trailing: MoonaIcon('search', size: 20, color: c.onSurfaceVariant),
+        Row(
+          children: [
+            Expanded(
+              child: MoonaField(
+                controller: _query,
+                placeholder: t.searchContacts,
+                onChanged: (_) => setState(() {}),
+                trailing:
+                    MoonaIcon('search', size: 20, color: c.onSurfaceVariant),
+              ),
+            ),
+            const SizedBox(width: 6),
+            _SyncButton(
+              syncing: _syncing,
+              tooltip: t.syncContacts,
+              onTap: _refresh,
+            ),
+          ],
         ),
         const SizedBox(height: 10),
         // Always available: opens the OS contact picker — a one-tap native
@@ -584,6 +656,48 @@ class _ContactPickerState extends ConsumerState<_ContactPicker> {
           ],
         ],
       ],
+    );
+  }
+}
+
+/// Manual "re-check who's on Moona" button. Shows a spinner while a refresh is
+/// in flight so a stale list can be force-refreshed on demand.
+class _SyncButton extends StatelessWidget {
+  const _SyncButton({
+    required this.syncing,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final bool syncing;
+  final String tooltip;
+  final Future<void> Function() onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SizedBox(
+      width: 46,
+      height: 46,
+      child: Material(
+        color: c.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: syncing ? null : () => onTap(),
+          icon: syncing
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: c.primary,
+                  ),
+                )
+              : Icon(Icons.refresh_rounded, size: 22, color: c.onSurfaceVariant),
+        ),
+      ),
     );
   }
 }

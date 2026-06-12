@@ -153,6 +153,59 @@ void assertNoDuplicateActiveItem(
   }
 }
 
+/// Every trashed row for [ownerId]/[productId] (optionally excluding
+/// [ignoreItemId]). Mirrors [findDuplicateActiveItem] but returns all matches —
+/// used to keep trash free of duplicates (Issue 5) and of products that are
+/// active again (Issue 6).
+List<Map<String, dynamic>> findDuplicateTrashItems(
+  List<Map<String, dynamic>> items,
+  String ownerId,
+  String productId, [
+  String? ignoreItemId,
+]) =>
+    items.where((item) {
+      final itemId = documentId(item);
+      return item['ownerId'] == ownerId &&
+          item['status'] == 'trash' &&
+          item['productId'] == productId &&
+          (ignoreItemId == null || itemId != ignoreItemId);
+    }).toList();
+
+/// Collapses trash for display (no writes): drops rows whose product is active
+/// again, and keeps only the newest trashed row per product. The mutation paths
+/// hard-delete the rest; this keeps even legacy/dirty data tidy on read.
+List<Map<String, dynamic>> dedupeTrashForDisplay(
+  List<Map<String, dynamic>> trash,
+  List<Map<String, dynamic>> activeItems,
+) {
+  final activeProductIds = <String>{
+    for (final item in activeItems)
+      if ((item['productId'] ?? '').toString().isNotEmpty)
+        item['productId'].toString(),
+  };
+  final newestByProduct = <String, Map<String, dynamic>>{};
+  final withoutProduct = <Map<String, dynamic>>[];
+  for (final item in trash) {
+    final productId = (item['productId'] ?? '').toString();
+    if (productId.isEmpty) {
+      withoutProduct.add(item);
+      continue;
+    }
+    if (activeProductIds.contains(productId)) continue;
+    final existing = newestByProduct[productId];
+    if (existing == null ||
+        _trashedAtMillis(item) >= _trashedAtMillis(existing)) {
+      newestByProduct[productId] = item;
+    }
+  }
+  return [...newestByProduct.values, ...withoutProduct];
+}
+
+int _trashedAtMillis(Map<String, dynamic> item) =>
+    DateTime.tryParse((item['trashedAt'] ?? '').toString())
+        ?.millisecondsSinceEpoch ??
+    0;
+
 Map<String, dynamic> buildProductDocument(
   Map<String, dynamic> input, [
   String? id,
@@ -301,6 +354,13 @@ Map<String, dynamic> patchListItemDocument(
           : existing['important'] == true,
       'note': normalizeText(
           input.containsKey('note') ? input['note'] : existing['note']),
+      // Editing an item is an explicit "keep this" signal, so it cancels any
+      // in-flight scratch. Without clearing these, a mid-scratch edit preserves
+      // `scratchExpiresAt`, and the lazy finalize sweep later trashes the item
+      // (the "adding a brand/store removes the item" bug on shared lists).
+      'scratchedAt': '',
+      'scratchExpiresAt': '',
+      'scratchedByUserId': '',
       'updatedByUserId': actorId,
       'updatedAt': nowIso(),
     };

@@ -72,7 +72,7 @@ class MainScreen extends ConsumerWidget {
                   hasItems: state.items.isNotEmpty,
                   shareTooltip: t.shareList,
                   storeModeTooltip: t.storeMode,
-                  onStoreMode: () => showStoreMode(context),
+                  onStoreMode: () => showStoreMode(context, ref),
                   onTrash: () => showTrashSheet(context),
                   onShare: () => showContactFlow(context, ref),
                   onSettings: () => showSettingsSheet(context),

@@ -93,7 +93,10 @@ abstract class MoonaRepository {
   /// Resolves which of [phones] belong to registered Moona users. Only phone
   /// numbers are sent — local contact names stay on device and are rejoined by
   /// `phoneDigits`.
-  Future<ContactLookupResult> lookupContacts(List<String> phones);
+  Future<ContactLookupResult> lookupContacts(
+    List<String> phones, {
+    String defaultCountryCode = '966',
+  });
 
   Future<ListItem> addItem(ItemFormData form);
 

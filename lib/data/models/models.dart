@@ -434,6 +434,15 @@ class ContactLookupEntry {
         displayName: _stringOrNull(m, 'displayName'),
         isSelf: _bool(m, 'isSelf'),
       );
+
+  Map<String, dynamic> toJson() => {
+        'phone': phone,
+        'phoneDigits': phoneDigits,
+        'registered': registered,
+        if (userId != null) 'userId': userId,
+        if (displayName != null) 'displayName': displayName,
+        'isSelf': isSelf,
+      };
 }
 
 /// Result of `lookupContacts`: registered users first, with split convenience
@@ -471,6 +480,11 @@ class ContactLookupResult {
         : <String>[];
     return ContactLookupResult(contacts: contacts, invalid: invalid);
   }
+
+  Map<String, dynamic> toJson() => {
+        'contacts': [for (final e in contacts) e.toJson()],
+        'invalid': invalid,
+      };
 }
 
 /// A live "someone is shopping now" row from `shopping_presence` (Phase 3).

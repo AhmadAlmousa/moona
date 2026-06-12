@@ -79,6 +79,58 @@ void main() {
     expect(groups.last.items.map((i) => i.id).toList(), ['d']);
   });
 
+  test('storeModeItems filters by category and pins important first', () {
+    final state = stateWith([
+      item('a', category: 'grocery'),
+      item('b', category: 'meats'),
+      item('c', important: true, category: 'grocery'),
+    ]);
+    // Scoped to grocery: 'b' excluded; important 'c' pinned before 'a'.
+    expect(
+      state.storeModeItems(categoryId: 'grocery').map((i) => i.id).toList(),
+      ['c', 'a'],
+    );
+  });
+
+  test('storeModeItems filters by seller, ignoring the on-screen filter', () {
+    final lulu = ListItem(
+      id: 'x',
+      ownerId: 'me',
+      productId: 'p_x',
+      count: 1,
+      important: false,
+      status: ItemStatus.active,
+      seller: 'Lulu',
+      categoryId: 'grocery',
+    );
+    final danube = ListItem(
+      id: 'y',
+      ownerId: 'me',
+      productId: 'p_y',
+      count: 1,
+      important: false,
+      status: ItemStatus.active,
+      seller: 'Danube',
+      categoryId: 'meats',
+    );
+    final state = stateWith([lulu, danube], filter: 'meats');
+    expect(
+      state.storeModeItems(seller: 'Lulu').map((i) => i.id).toList(),
+      ['x'],
+    );
+  });
+
+  test('storeModeGroups buckets like the main list when grouped', () {
+    final state = stateWith([
+      item('a', category: 'grocery'),
+      item('b', category: 'meats'),
+      item('c', category: 'grocery'),
+    ]).copyWith(sortKey: SortKey.category, grouped: true);
+    final groups = state.storeModeGroups();
+    expect(groups.map((g) => g.label).toList(), ['Grocery', 'Meats']);
+    expect(groups.first.items.map((i) => i.id).toList(), ['a', 'c']);
+  });
+
   test('nameFor falls back to the user id when unknown', () {
     final state = stateWith([]);
     expect(state.nameFor('ghost'), 'ghost');

@@ -19,13 +19,18 @@ import 'features/list/item_form.dart';
 import 'features/list/main_screen.dart';
 import 'features/pwa/pwa_install.dart';
 import 'features/push/firebase_push_notifications.dart';
+import 'features/sharing/contact_picker.dart';
 import 'features/sharing/incoming_share.dart';
 import 'features/widget/widget_bridge.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Background isolate entry for taps on the home-screen widget.
-  HomeWidget.registerInteractivityCallback(moonaWidgetInteraction);
+  // Background isolate entry for taps on the home-screen widget. Native only:
+  // PluginUtilities.getCallbackHandle is unimplemented on web and throws,
+  // which would kill main() before runApp (blank page).
+  if (!kIsWeb) {
+    HomeWidget.registerInteractivityCallback(moonaWidgetInteraction);
+  }
 
   // Push runs on Android (FCM via google-services.json) and web/PWA (FCM via
   // explicit web options). iOS/APNs is parked; desktop + tests keep the default
@@ -101,6 +106,10 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
 
   /// One-shot guard so the PWA install banner is offered at most once per run.
   bool _promptedInstall = false;
+
+  /// One-shot guard so the contacts registration cache is warmed at most once
+  /// per run (native, permission-granted) once we reach the main screen.
+  bool _warmedContacts = false;
 
   @override
   void initState() {
@@ -234,6 +243,15 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
     );
   }
 
+  /// Warms the contacts registration cache in the background once we're on the
+  /// main screen, so the share picker opens instantly and fresh next time.
+  void _maybeWarmContacts() {
+    if (_warmedContacts || kIsWeb || !mounted) return;
+    if (ref.read(appControllerProvider).screen != AppScreen.main) return;
+    _warmedContacts = true;
+    unawaited(warmContactsCache(ref));
+  }
+
   void _maybePromptShare(List<Share> pending) {
     if (pending.isEmpty) return;
     final share = pending.first;
@@ -262,6 +280,7 @@ class _RootState extends ConsumerState<_Root> with WidgetsBindingObserver {
       if (next.screen == AppScreen.main) pushWidgetSnapshot(next);
       _maybeOpenWidgetAdd();
       _maybePromptInstall();
+      _maybeWarmContacts();
     });
 
     final AppScreen screen = ref.watch(appControllerProvider.select((s) => s.screen));

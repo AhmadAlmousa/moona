@@ -63,7 +63,13 @@ Future<JsonMap> getBootstrapData({
   final units = listOfMaps(await repo.listUnits());
   final products = listOfMaps(await repo.listProducts());
   final items = listOfMaps(await repo.listActiveItems(ownerId));
-  final trash = listOfMaps(await repo.listTrashItems(ownerId));
+  // De-dup trash for display: hide rows whose product is active again and
+  // collapse same-product duplicates (keep newest). Pure — mutation paths
+  // hard-delete the rest, so legacy/dirty data tidies up automatically.
+  final trash = dedupeTrashForDisplay(
+    listOfMaps(await repo.listTrashItems(ownerId)),
+    items,
+  );
   final shares = listOfMaps(await repo.listSharesForParticipant(actorId));
   final presence = listOfMaps(await repo.listShoppingPresence(ownerId));
   final profiles = await profileLookup(repo, [
@@ -150,6 +156,11 @@ Future<JsonMap> lookupContacts({
   requireActor(actorId);
   final rawPhones = contactLookupPhones(payload);
   final limit = intFrom(payload['limit'], fallback: 250).clamp(1, 500).toInt();
+  // Caller's own country code (digits) so a local number like `0567…` resolves
+  // to the same digits they registered with. Defaults to Saudi (`966`).
+  final ccRaw =
+      (payload['defaultCountryCode'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+  final defaultCc = ccRaw.isEmpty ? '966' : ccRaw;
 
   final normalized = <JsonMap>[];
   final invalid = <JsonMap>[];
@@ -157,7 +168,7 @@ Future<JsonMap> lookupContacts({
   for (final raw in rawPhones.take(limit)) {
     final value = (raw ?? '').toString();
     try {
-      final phone = normalizePhone(value);
+      final phone = normalizePhone(value, defaultCountryCode: defaultCc);
       final digits = phone['digits'].toString();
       if (!seenDigits.add(digits)) continue;
       normalized.add({
@@ -176,7 +187,10 @@ Future<JsonMap> lookupContacts({
   final profiles = listOfMaps(
     await repo.listProfilesByPhoneDigits(
       normalized.expand((entry) {
-        return phoneDigitLookupVariants(entry['phoneDigits']);
+        return phoneDigitLookupVariants(
+          entry['phoneDigits'],
+          defaultCountryCode: defaultCc,
+        );
       }),
     ),
   );
@@ -230,6 +244,9 @@ Future<JsonMap> createItem({
     await repo.updateImagePermissions(
         data['imageFileId'], ownerId, ownerShares);
   }
+
+  // The product is active again, so it shouldn't linger in trash (Issue 6).
+  await purgeTrashDuplicates(repo, ownerId, productId);
 
   await appendListEvent(
     repo,
@@ -334,6 +351,15 @@ Future<JsonMap> trashItem({
     ),
   );
 
+  // Keep only the row just trashed; drop earlier trashed copies of the same
+  // product so trash doesn't fill up with duplicates (Issue 5).
+  await purgeTrashDuplicates(
+    repo,
+    item['ownerId'].toString(),
+    item['productId'],
+    keepItemId: documentId(item),
+  );
+
   await appendListEvent(
     repo,
     ownerId: item['ownerId'].toString(),
@@ -374,6 +400,15 @@ Future<JsonMap> restoreTrashItem({
       restoreTrashPatch(actorId),
       item['ownerId'],
     ),
+  );
+
+  // The restored row is active now; drop any other trashed copies of the same
+  // product so a stale duplicate can't shadow it (Issues 5 & 6).
+  await purgeTrashDuplicates(
+    repo,
+    item['ownerId'].toString(),
+    item['productId'],
+    keepItemId: documentId(item),
   );
 
   await appendListEvent(
@@ -998,6 +1033,29 @@ final operations = <String, Operation>{
   'adminMergeProducts': adminMergeProducts,
 };
 
+/// Hard-deletes trashed rows for [ownerId]/[productId], keeping [keepItemId]
+/// when given. Keeps trash de-duplicated (Issue 5) and clear of products that
+/// are active again (Issue 6). Best-effort: a delete failure is swallowed so the
+/// user's action still succeeds.
+Future<void> purgeTrashDuplicates(
+  dynamic repo,
+  String ownerId,
+  Object? productId, {
+  String? keepItemId,
+}) async {
+  final pid = (productId ?? '').toString();
+  if (pid.isEmpty || ownerId.isEmpty) return;
+  final trash = listOfMaps(await repo.listTrashItems(ownerId));
+  final dupes = findDuplicateTrashItems(trash, ownerId, pid, keepItemId);
+  for (final item in dupes) {
+    try {
+      await repo.deleteListItem(documentId(item));
+    } catch (_) {
+      // Best-effort cleanup; never block the primary mutation.
+    }
+  }
+}
+
 Future<void> finalizeExpiredScratchesForOwner(
   dynamic repo,
   String ownerId,
@@ -1037,6 +1095,13 @@ Future<JsonMap> finalizeScratchDocument(
       trashPatch(actorId, 'scratch_timer'),
       ownerId,
     ),
+  );
+  // De-dup trash: keep this finalized row, drop earlier trashed copies (Issue 5).
+  await purgeTrashDuplicates(
+    repo,
+    ownerId,
+    item['productId'],
+    keepItemId: documentId(item),
   );
   await appendListEvent(
     repo,
