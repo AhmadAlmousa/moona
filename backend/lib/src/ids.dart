@@ -15,6 +15,8 @@ abstract final class CollectionIds {
   static const shares = 'shares';
   static const listEvents = 'list_events';
   static const shoppingPresence = 'shopping_presence';
+  static const brands = 'brands';
+  static const stores = 'stores';
 
   static const all = [
     profiles,
@@ -25,6 +27,8 @@ abstract final class CollectionIds {
     shares,
     listEvents,
     shoppingPresence,
+    brands,
+    stores,
   ];
 }
 
@@ -57,6 +61,7 @@ abstract final class FunctionIds {
   static const adminDelete = 'adminDelete';
   static const adminMergeSuggestions = 'adminMergeSuggestions';
   static const adminMergeProducts = 'adminMergeProducts';
+  static const adminResetUser = 'adminResetUser';
 }
 
 Map<String, String> get realtimeChannels => {
@@ -76,4 +81,8 @@ Map<String, String> get realtimeChannels => {
           'tablesdb.$databaseId.tables.${CollectionIds.listEvents}.rows',
       CollectionIds.shoppingPresence:
           'tablesdb.$databaseId.tables.${CollectionIds.shoppingPresence}.rows',
+      CollectionIds.brands:
+          'tablesdb.$databaseId.tables.${CollectionIds.brands}.rows',
+      CollectionIds.stores:
+          'tablesdb.$databaseId.tables.${CollectionIds.stores}.rows',
     };

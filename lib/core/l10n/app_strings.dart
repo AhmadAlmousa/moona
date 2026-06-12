@@ -370,4 +370,47 @@ class AppStrings {
     }
     return isArabic ? '$relAgo $n $u' : '$n$u $relAgo';
   }
+
+  // admin
+  String get admin => isArabic ? 'الإدارة' : 'Admin';
+  String get adminUsers => isArabic ? 'المستخدمون' : 'Users';
+  String get adminCategories => isArabic ? 'التصنيفات' : 'Categories';
+  String get adminUnits => isArabic ? 'الوحدات' : 'Units';
+  String get adminProducts => isArabic ? 'المنتجات' : 'Products';
+  String get adminBrands => isArabic ? 'العلامات التجارية' : 'Brands';
+  String get adminStores => isArabic ? 'المتاجر' : 'Stores';
+  String get adminLoadError =>
+      isArabic ? 'تعذّر تحميل البيانات' : 'Could not load data';
+  String get adminEmpty => isArabic ? 'لا توجد عناصر' : 'No items yet';
+  String get adminAdd => isArabic ? 'إضافة' : 'Add';
+  String get adminEdit => isArabic ? 'تعديل' : 'Edit';
+  String get adminDelete => isArabic ? 'حذف' : 'Delete';
+  String get adminMakeAdmin => isArabic ? 'تعيين كمسؤول' : 'Make admin';
+  String get adminRemoveAdmin => isArabic ? 'إزالة الصلاحية' : 'Remove admin';
+  String get adminBadge => isArabic ? 'مسؤول' : 'Admin';
+  String get adminYou => isArabic ? '(أنت)' : '(you)';
+  String get adminThisIsYou => isArabic
+      ? 'هذا حسابك — لا يمكن تنفيذ هذه الإجراءات على نفسك.'
+      : "This is your account — these actions can't target yourself.";
+  String get active => isArabic ? 'مُفعّل' : 'Active';
+  String get inactive => isArabic ? 'مُعطّل' : 'Inactive';
+  String get adminResetData => isArabic ? 'تصفير البيانات' : 'Reset data';
+  String get adminDeleteUser => isArabic ? 'حذف المستخدم' : 'Delete user';
+  String get adminNameAr => isArabic ? 'الاسم بالعربية' : 'Name (Arabic)';
+  String get adminNameEn => isArabic ? 'الاسم بالإنجليزية' : 'Name (English)';
+  String get adminEmoji => isArabic ? 'الرمز التعبيري' : 'Emoji';
+  String get adminTermName => isArabic ? 'الاسم' : 'Name';
+  String get adminProductName => isArabic ? 'اسم المنتج' : 'Product name';
+  String adminResetConfirm(String who) => isArabic
+      ? 'تصفير كل أصناف وسجلّ وقوائم $who؟ يبقى الحساب كما هو.'
+      : "Reset all of $who's items, history and linked lists? The account stays.";
+  String adminDeleteUserConfirm(String who) => isArabic
+      ? 'حذف $who نهائياً مع كل بياناته؟ لا يمكن التراجع.'
+      : 'Permanently delete $who and all their data? This cannot be undone.';
+  String adminDeleteItemConfirm(String name) => isArabic
+      ? 'حذف "$name"؟'
+      : 'Delete "$name"?';
+  String get adminDone => isArabic ? 'تم' : 'Done';
+  String adminResetDone(int items) =>
+      isArabic ? 'تم تصفير $items صنف' : 'Reset $items items';
 }

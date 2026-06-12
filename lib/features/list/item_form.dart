@@ -395,20 +395,23 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
           ),
           const SizedBox(height: 18),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: MoonaField(
+                child: _TermField(
                   controller: _brand,
                   label: t.brand,
                   placeholder: t.brandHint,
+                  terms: state.brands,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: MoonaField(
+                child: _TermField(
                   controller: _seller,
                   label: t.seller,
                   placeholder: t.sellerHint,
+                  terms: state.stores,
                 ),
               ),
             ],
@@ -645,6 +648,120 @@ class _NameField extends StatelessWidget {
                           product.label(lang),
                           style: TextStyle(
                             fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                            color: c.onSurface,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// A free-text field that suggests from a curated [terms] list (brand / store
+/// autocomplete). The typed value is kept as-is — suggestions never constrain
+/// the input, so users can still enter anything.
+class _TermField extends StatefulWidget {
+  const _TermField({
+    required this.controller,
+    required this.label,
+    required this.placeholder,
+    required this.terms,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String placeholder;
+  final List<CatalogTerm> terms;
+
+  @override
+  State<_TermField> createState() => _TermFieldState();
+}
+
+class _TermFieldState extends State<_TermField> {
+  final FocusNode _node = FocusNode();
+  bool _show = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(() {
+      if (mounted) setState(() => _show = _node.hasFocus);
+    });
+  }
+
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  List<CatalogTerm> get _matches {
+    final q = widget.controller.text.trim().toLowerCase();
+    final active = widget.terms.where((term) => term.active);
+    final filtered = q.isEmpty
+        ? active
+        : active.where((term) => term.name.toLowerCase().contains(q));
+    // Drop an exact match so a fully-typed value doesn't show a 1-row menu.
+    return filtered
+        .where((term) => term.name.toLowerCase() != q)
+        .take(6)
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final matches = _show ? _matches : const <CatalogTerm>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MoonaField(
+          controller: widget.controller,
+          focusNode: _node,
+          label: widget.label,
+          placeholder: widget.placeholder,
+          onChanged: (_) => setState(() => _show = true),
+        ),
+        if (matches.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            constraints: const BoxConstraints(maxHeight: 180),
+            decoration: BoxDecoration(
+              color: c.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.all(6),
+              children: [
+                for (final term in matches)
+                  InkWell(
+                    onTap: () {
+                      widget.controller.text = term.name;
+                      setState(() => _show = false);
+                      _node.unfocus();
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 11,
+                      ),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: Text(
+                          term.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: c.onSurface,
                           ),

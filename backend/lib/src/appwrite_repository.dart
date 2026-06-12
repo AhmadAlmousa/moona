@@ -179,6 +179,16 @@ class AppwriteRepository {
     return listAllDocuments(adminDatabases, CollectionIds.products, queries);
   }
 
+  /// Lists the universal brand/store autocomplete terms. [kind] is `'brands'`
+  /// or `'stores'`.
+  Future<List<JsonMap>> listCatalogTerms(Object? kind,
+      {bool activeOnly = true}) {
+    final collectionId = catalogTermCollection(kind);
+    final queries = [Query.orderAsc('name')];
+    if (activeOnly) queries.insert(0, Query.equal('active', true));
+    return listAllDocuments(adminDatabases, collectionId, queries);
+  }
+
   Future<JsonMap?> findProductByName(Object? name) async {
     final normalized = normalizeProductName(name);
     final byPrimary = await adminDatabases.listDocuments(
@@ -552,6 +562,9 @@ class AppwriteRepository {
     if (kind == 'units') return listUnits(activeOnly: false);
     if (kind == 'products') return listProducts(activeOnly: false);
     if (kind == 'users') return listProfiles();
+    if (kind == 'brands' || kind == 'stores') {
+      return listCatalogTerms(kind, activeOnly: false);
+    }
     throw MoonaError(ErrorCodes.invalidInput, 'Unsupported admin list kind.');
   }
 
@@ -608,6 +621,28 @@ class AppwriteRepository {
       );
     }
 
+    if (kind == 'brands' || kind == 'stores') {
+      final name = normalizeText(input['name']);
+      if (name.isEmpty) {
+        throw MoonaError(ErrorCodes.invalidInput, 'name is required.');
+      }
+      return adminDatabases.createDocument(
+        databaseId: databaseId,
+        collectionId: catalogTermCollection(kind),
+        documentId:
+            (input['id'] ?? input['stableId'] ?? ID.unique()).toString(),
+        data: {
+          'stableId': (input['id'] ?? input['stableId'] ?? '').toString(),
+          'name': name,
+          'normalizedName': normalizeProductName(name),
+          'active': input['active'] != false,
+          'createdAt': now,
+          'updatedAt': now,
+        },
+        permissions: catalogDocumentPermissions(),
+      );
+    }
+
     throw MoonaError(ErrorCodes.invalidInput, 'Unsupported admin create kind.');
   }
 
@@ -616,11 +651,35 @@ class AppwriteRepository {
     final input = rawInput is Map
         ? rawInput.cast<String, dynamic>()
         : <String, dynamic>{};
+
+    // Only a curated set of profile fields may be patched via admin: promoting/
+    // demoting admins and renaming. Never let arbitrary profile keys through.
+    if (kind == 'users') {
+      final patch = <String, dynamic>{'updatedAt': nowIso()};
+      if (input.containsKey('isAdmin')) {
+        patch['isAdmin'] = input['isAdmin'] == true;
+      }
+      if ((input['displayName'] ?? '').toString().trim().isNotEmpty) {
+        patch['displayName'] = input['displayName'].toString().trim();
+      }
+      return adminDatabases.updateDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.profiles,
+        documentId: id.toString(),
+        data: patch,
+      );
+    }
+
     final data = {...input, 'updatedAt': nowIso()};
     if (kind == 'products') {
       final existing = await getProduct(id);
       data.addAll(withoutId(buildProductDocument({...existing, ...input})));
       data.remove('createdAt');
+    }
+    if ((kind == 'brands' || kind == 'stores') && input.containsKey('name')) {
+      final name = normalizeText(input['name']);
+      data['name'] = name;
+      data['normalizedName'] = normalizeProductName(name);
     }
 
     final collectionId = adminKindToCollection(kind);
@@ -649,6 +708,75 @@ class AppwriteRepository {
       documentId: id.toString(),
       data: {'active': false, 'updatedAt': nowIso()},
     );
+  }
+
+  /// Wipes all of [userId]'s list data — active/trash items (and their images),
+  /// history/activity events (insights derive from these, so they reset too),
+  /// linked-list shares, and shopping presence — while keeping the account and
+  /// profile. Returns counts. Best-effort on image-file deletion.
+  Future<JsonMap> resetUserData(Object? userId) async {
+    final id = userId.toString();
+
+    final items = await listAllDocuments(
+      adminDatabases,
+      CollectionIds.listItems,
+      [Query.equal('ownerId', id)],
+    );
+    final fileIds = items
+        .map((item) => (item['imageFileId'] ?? '').toString())
+        .where((fileId) => fileId.isNotEmpty)
+        .toSet();
+    for (final item in items) {
+      await deleteListItem(documentId(item));
+    }
+    var deletedFiles = 0;
+    for (final fileId in fileIds) {
+      try {
+        await adminStorage.deleteFile(bucketId: imageBucketId, fileId: fileId);
+        deletedFiles++;
+      } catch (_) {
+        // Best-effort: a missing/failed file delete must not abort the reset.
+      }
+    }
+
+    final events = await listAllDocuments(
+      adminDatabases,
+      CollectionIds.listEvents,
+      [Query.equal('ownerId', id)],
+    );
+    for (final event in events) {
+      await adminDatabases.deleteDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.listEvents,
+        documentId: documentId(event),
+      );
+    }
+
+    final shares = await listSharesForParticipant(id);
+    for (final share in shares) {
+      await adminDatabases.deleteDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.shares,
+        documentId: documentId(share),
+      );
+    }
+
+    await deleteShoppingPresence(id);
+
+    // Drop any dangling "currently viewing" link on the profile (skipped if the
+    // profile is already gone, e.g. during a full user-delete cascade).
+    try {
+      await setActiveReceivedOwner(id, '');
+    } catch (error) {
+      if (!isMissing(error)) rethrow;
+    }
+
+    return {
+      'items': items.length,
+      'events': events.length,
+      'shares': shares.length,
+      'files': deletedFiles,
+    };
   }
 
   Future<JsonMap> mergeProducts(
@@ -799,7 +927,16 @@ String adminKindToCollection(Object? kind) {
   if (kind == 'units') return CollectionIds.units;
   if (kind == 'products') return CollectionIds.products;
   if (kind == 'users') return CollectionIds.profiles;
+  if (kind == 'brands') return CollectionIds.brands;
+  if (kind == 'stores') return CollectionIds.stores;
   throw MoonaError(ErrorCodes.invalidInput, 'Unsupported admin kind.');
+}
+
+/// Maps a universal-term [kind] (`'brands'`/`'stores'`) to its collection id.
+String catalogTermCollection(Object? kind) {
+  if (kind == 'brands') return CollectionIds.brands;
+  if (kind == 'stores') return CollectionIds.stores;
+  throw MoonaError(ErrorCodes.invalidInput, 'Unsupported catalog term kind.');
 }
 
 JsonMap withoutId(JsonMap document) {
@@ -986,6 +1123,12 @@ class StorageAdapter {
     required String fileId,
   }) =>
       storage.getFile(bucketId: bucketId, fileId: fileId);
+
+  Future<dynamic> deleteFile({
+    required String bucketId,
+    required String fileId,
+  }) =>
+      storage.deleteFile(bucketId: bucketId, fileId: fileId);
 }
 
 class TokensAdapter {

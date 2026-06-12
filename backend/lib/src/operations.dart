@@ -62,6 +62,8 @@ Future<JsonMap> getBootstrapData({
   final categories = listOfMaps(await repo.listCategories());
   final units = listOfMaps(await repo.listUnits());
   final products = listOfMaps(await repo.listProducts());
+  final brands = listOfMaps(await repo.listCatalogTerms('brands'));
+  final stores = listOfMaps(await repo.listCatalogTerms('stores'));
   final items = listOfMaps(await repo.listActiveItems(ownerId));
   // De-dup trash for display: hide rows whose product is active again and
   // collapse same-product duplicates (keep newest). Pure — mutation paths
@@ -124,6 +126,8 @@ Future<JsonMap> getBootstrapData({
       'categories': categories,
       'units': units,
       'products': products,
+      'brands': brands,
+      'stores': stores,
     },
     'sharing': sharingStatus(actorId, profile, enrichedShares),
     'profiles': profiles,
@@ -158,8 +162,9 @@ Future<JsonMap> lookupContacts({
   final limit = intFrom(payload['limit'], fallback: 250).clamp(1, 500).toInt();
   // Caller's own country code (digits) so a local number like `0567…` resolves
   // to the same digits they registered with. Defaults to Saudi (`966`).
-  final ccRaw =
-      (payload['defaultCountryCode'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+  final ccRaw = (payload['defaultCountryCode'] ?? '')
+      .toString()
+      .replaceAll(RegExp(r'\D'), '');
   final defaultCc = ccRaw.isEmpty ? '966' : ccRaw;
 
   final normalized = <JsonMap>[];
@@ -914,7 +919,7 @@ Future<JsonMap> adminList({
   required String actorId,
   required JsonMap payload,
 }) async {
-  assertAdmin(actorId);
+  await requireAdmin(repo, actorId);
   return {'items': listOfMaps(await repo.adminList(payload['kind']))};
 }
 
@@ -923,7 +928,7 @@ Future<JsonMap> adminCreate({
   required String actorId,
   required JsonMap payload,
 }) async {
-  assertAdmin(actorId);
+  await requireAdmin(repo, actorId);
   return {
     'item': asMap(
       await repo.adminCreate(
@@ -939,7 +944,7 @@ Future<JsonMap> adminUpdate({
   required String actorId,
   required JsonMap payload,
 }) async {
-  assertAdmin(actorId);
+  await requireAdmin(repo, actorId);
   return {
     'item': asMap(
       await repo.adminUpdate(
@@ -956,21 +961,24 @@ Future<JsonMap> adminDelete({
   required String actorId,
   required JsonMap payload,
 }) async {
-  assertAdmin(actorId);
+  await requireAdmin(repo, actorId);
   if (payload['kind'] == 'users') {
-    final shares =
-        listOfMaps(await repo.listSharesForParticipant(payload['id']));
-    final now = nowIso();
-    for (final share in shares.where((share) => share['status'] != 'revoked')) {
-      await repo.updateShare(documentId(share), {
-        'status': 'revoked',
-        'revokedAt': now,
-        'updatedAt': now,
-      });
-    }
+    // Full cascade (audit B13): purge the user's data — items, events, shares,
+    // presence, images — before removing the profile + auth account.
+    await repo.resetUserData(payload['id']);
   }
 
   return {'result': await repo.adminDelete(payload['kind'], payload['id'])};
+}
+
+Future<JsonMap> adminResetUser({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  await requireAdmin(repo, actorId);
+  final userId = payload['id'] ?? payload['userId'];
+  return {'result': await repo.resetUserData(userId)};
 }
 
 Future<JsonMap> adminMergeSuggestions({
@@ -978,7 +986,7 @@ Future<JsonMap> adminMergeSuggestions({
   required String actorId,
   required JsonMap payload,
 }) async {
-  assertAdmin(actorId);
+  await requireAdmin(repo, actorId);
   final products = listOfMaps(await repo.listProducts(activeOnly: false));
   return {
     'suggestions': suggestProductMerges(
@@ -993,7 +1001,7 @@ Future<JsonMap> adminMergeProducts({
   required String actorId,
   required JsonMap payload,
 }) async {
-  assertAdmin(actorId);
+  await requireAdmin(repo, actorId);
   return {
     'result': await repo.mergeProducts(
       payload['sourceProductId'],
@@ -1031,6 +1039,7 @@ final operations = <String, Operation>{
   'adminDelete': adminDelete,
   'adminMergeSuggestions': adminMergeSuggestions,
   'adminMergeProducts': adminMergeProducts,
+  'adminResetUser': adminResetUser,
 };
 
 /// Hard-deletes trashed rows for [ownerId]/[productId], keeping [keepItemId]
@@ -1518,14 +1527,26 @@ String? validTheme(Object? theme) {
   return value;
 }
 
-void assertAdmin(String actorId) {
+Set<String> adminEnvUserIds() =>
+    (Platform.environment['MOONA_ADMIN_USER_IDS'] ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+/// Admin gate. Passes if the actor is in the `MOONA_ADMIN_USER_IDS` env var
+/// (the bootstrap-the-first-admin seed) OR their profile has `isAdmin == true`
+/// (in-app promotion). Throws [adminOnly] otherwise.
+Future<void> requireAdmin(dynamic repo, String actorId) async {
   requireActor(actorId);
-  final ids = (Platform.environment['MOONA_ADMIN_USER_IDS'] ?? '')
-      .split(',')
-      .map((id) => id.trim())
-      .where((id) => id.isNotEmpty)
-      .toSet();
-  if (!ids.contains(actorId)) throw adminOnly();
+  if (adminEnvUserIds().contains(actorId)) return;
+  try {
+    final profile = await repo.getProfile(actorId);
+    if (profile is Map && profile['isAdmin'] == true) return;
+  } catch (_) {
+    // Missing profile → not an admin.
+  }
+  throw adminOnly();
 }
 
 JsonMap asMap(Object? value) {

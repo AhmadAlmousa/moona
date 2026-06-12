@@ -982,3 +982,22 @@ share is accepted/unlinked or when an item image is saved.
   `item_images` bucket, the `moonaApi` function, 5 categories, 12 units, and 50
   products. A local API key is only needed if rerunning the provisioner from a
   shell.
+
+## Admin feature (2026-06-12)
+
+- **Schema deltas (provisioned live):** `profiles.isAdmin` boolean (optional);
+  two new collections `brands` + `stores` (rowSecurity off, `read("users")`;
+  columns `stableId/name/normalizedName/active/createdAt/updatedAt`; unique index
+  on `normalizedName`, fulltext on `name`). Both added to the realtime channel set.
+- **Bootstrap additions:** `profile.isAdmin` (bool); `catalogs.brands` +
+  `catalogs.stores` (active terms, each `{$id,name,active}`).
+- **Admin actions** (gated by `MOONA_ADMIN_USER_IDS` env var OR `profiles.isAdmin`):
+  `adminList/adminCreate/adminUpdate/adminDelete` over kinds
+  `users|categories|units|products|brands|stores`; `adminResetUser {id}` (wipes a
+  user's items/events/shares/presence + images, keeps the account);
+  `adminUpdate('users', id, {isAdmin?,displayName?})` for promote/demote/rename;
+  `adminDelete('users', id)` now does the full data cascade before deleting the
+  account. Catalog deletes are soft (`active=false`); brand/store free text on
+  items is unchanged (autocomplete only suggests).
+- **Deployed:** moonaApi deployment `6a2c424784ad06540c58` (rollback
+  `6a2c01cfb8e6620125c0`). First admin seeded = userId `6a20d796f1dd431e0eff`.

@@ -143,6 +143,7 @@ final appwriteSchema = AppwriteSchema(
             key: 'activeReceivedOwnerId',
             size: 64,
             required: false),
+        AttributeSpec(type: 'boolean', key: 'isAdmin', required: false),
         AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
         AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
       ],
@@ -430,6 +431,54 @@ final appwriteSchema = AppwriteSchema(
             type: 'key',
             attributes: ['ownerId', 'activeAt']),
         IndexSpec(key: 'actor_unique', type: 'unique', attributes: ['actorId']),
+      ],
+    ),
+    TableSpec(
+      id: CollectionIds.brands,
+      name: 'Brands',
+      rowSecurity: false,
+      attributes: [
+        AttributeSpec(
+            type: 'string', key: 'stableId', size: 64, required: false),
+        AttributeSpec(type: 'string', key: 'name', size: 128, required: true),
+        AttributeSpec(
+            type: 'string', key: 'normalizedName', size: 128, required: true),
+        AttributeSpec(type: 'boolean', key: 'active', required: true),
+        AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
+        AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
+      ],
+      indexes: [
+        IndexSpec(
+            key: 'normalized_unique',
+            type: 'unique',
+            attributes: ['normalizedName']),
+        IndexSpec(key: 'name_search', type: 'fulltext', attributes: ['name']),
+        IndexSpec(
+            key: 'active_name', type: 'key', attributes: ['active', 'name']),
+      ],
+    ),
+    TableSpec(
+      id: CollectionIds.stores,
+      name: 'Stores',
+      rowSecurity: false,
+      attributes: [
+        AttributeSpec(
+            type: 'string', key: 'stableId', size: 64, required: false),
+        AttributeSpec(type: 'string', key: 'name', size: 128, required: true),
+        AttributeSpec(
+            type: 'string', key: 'normalizedName', size: 128, required: true),
+        AttributeSpec(type: 'boolean', key: 'active', required: true),
+        AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
+        AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
+      ],
+      indexes: [
+        IndexSpec(
+            key: 'normalized_unique',
+            type: 'unique',
+            attributes: ['normalizedName']),
+        IndexSpec(key: 'name_search', type: 'fulltext', attributes: ['name']),
+        IndexSpec(
+            key: 'active_name', type: 'key', attributes: ['active', 'name']),
       ],
     ),
   ],

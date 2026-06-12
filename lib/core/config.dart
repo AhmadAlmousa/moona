@@ -80,6 +80,15 @@ class MoonaFunctions {
   static const String undoScratchItem = 'undoScratchItem';
   static const String finalizeScratch = 'finalizeScratch';
   static const String setShoppingPresence = 'setShoppingPresence';
+
+  // Admin — gated server-side by isAdmin/MOONA_ADMIN_USER_IDS.
+  static const String adminList = 'adminList';
+  static const String adminCreate = 'adminCreate';
+  static const String adminUpdate = 'adminUpdate';
+  static const String adminDelete = 'adminDelete';
+  static const String adminResetUser = 'adminResetUser';
+  static const String adminMergeSuggestions = 'adminMergeSuggestions';
+  static const String adminMergeProducts = 'adminMergeProducts';
 }
 
 /// Appwrite collection ids, used to build realtime channel names.
@@ -94,6 +103,8 @@ class MoonaCollections {
   static const String shares = 'shares';
   static const String listEvents = 'list_events';
   static const String shoppingPresence = 'shopping_presence';
+  static const String brands = 'brands';
+  static const String stores = 'stores';
 
   static const List<String> all = [
     profiles,
@@ -104,5 +115,7 @@ class MoonaCollections {
     shares,
     listEvents,
     shoppingPresence,
+    brands,
+    stores,
   ];
 }

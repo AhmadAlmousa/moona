@@ -57,6 +57,7 @@ class Profile {
     required this.language,
     required this.theme,
     this.activeReceivedOwnerId,
+    this.isAdmin = false,
   });
 
   final String id;
@@ -65,6 +66,10 @@ class Profile {
   final String language;
   final String theme;
   final String? activeReceivedOwnerId;
+
+  /// Whether the backend reports this account as an admin (in-app promotion or
+  /// the `MOONA_ADMIN_USER_IDS` seed). Absent on older profiles ⇒ false.
+  final bool isAdmin;
 
   bool get isDark => theme == 'dark';
 
@@ -75,6 +80,7 @@ class Profile {
     language: _string(m, 'language', 'ar'),
     theme: _string(m, 'theme', 'light'),
     activeReceivedOwnerId: _stringOrNull(m, 'activeReceivedOwnerId'),
+    isAdmin: m['isAdmin'] == true,
   );
 
   Profile copyWith({String? language, String? theme, String? displayName}) =>
@@ -85,7 +91,29 @@ class Profile {
         language: language ?? this.language,
         theme: theme ?? this.theme,
         activeReceivedOwnerId: activeReceivedOwnerId,
+        isAdmin: isAdmin,
       );
+}
+
+/// A universal autocomplete term — a brand or a store name. Admin-curated;
+/// surfaced read-only to clients via bootstrap `catalogs.brands/stores`.
+@immutable
+class CatalogTerm {
+  const CatalogTerm({
+    required this.id,
+    required this.name,
+    this.active = true,
+  });
+
+  final String id;
+  final String name;
+  final bool active;
+
+  factory CatalogTerm.fromJson(Map<String, dynamic> m) => CatalogTerm(
+    id: (m[r'$id'] ?? m['id'] ?? m['stableId'] ?? '').toString(),
+    name: _string(m, 'name'),
+    active: m['active'] != false,
+  );
 }
 
 @immutable
@@ -562,6 +590,8 @@ class BootstrapData {
     required this.units,
     required this.products,
     required this.sharing,
+    this.brands = const [],
+    this.stores = const [],
     this.profileNames = const {},
     this.suggestions = const [],
     this.shoppingPresence = const [],
@@ -573,6 +603,11 @@ class BootstrapData {
   final List<Unit> units;
   final List<Product> products;
   final SharingStatus sharing;
+
+  /// Universal brand/store autocomplete lists (admin-curated). Empty until the
+  /// backend deploy that ships them lands.
+  final List<CatalogTerm> brands;
+  final List<CatalogTerm> stores;
 
   /// Optional userId → display name lookup (backend item 3/4). Empty until the
   /// backend includes it.
@@ -597,6 +632,8 @@ class BootstrapData {
       categories: _mapList(catalogs['categories'], ShopCategory.fromJson),
       units: _mapList(catalogs['units'], Unit.fromJson),
       products: _mapList(catalogs['products'], Product.fromJson),
+      brands: _mapList(catalogs['brands'], CatalogTerm.fromJson),
+      stores: _mapList(catalogs['stores'], CatalogTerm.fromJson),
       sharing: m['sharing'] is Map
           ? SharingStatus.fromJson(
               (m['sharing'] as Map).cast<String, dynamic>(),

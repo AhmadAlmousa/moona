@@ -5,6 +5,7 @@ import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
 import '../../shared/widgets/widgets.dart';
 import '../activity/activity_screen.dart';
+import '../admin/admin_screen.dart';
 import '../insights/insights_screen.dart';
 import 'contact_picker.dart';
 
@@ -90,6 +91,14 @@ class _SettingsContent extends ConsumerWidget {
           label: t.insights,
           onTap: () => _openScreen(context, const InsightsScreen()),
         ),
+        if (profile?.isAdmin ?? false) ...[
+          const SizedBox(height: 9),
+          _NavRow(
+            icon: 'shield',
+            label: t.admin,
+            onTap: () => _openScreen(context, const AdminScreen()),
+          ),
+        ],
         const SizedBox(height: 22),
         MoonaSection(
           title: t.settings,

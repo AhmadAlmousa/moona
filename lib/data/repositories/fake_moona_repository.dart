@@ -16,36 +16,53 @@ class FakeMoonaRepository implements MoonaRepository {
     _seed();
   }
 
-  final List<ShopCategory> _categories = const [
-    ShopCategory(
+  // Mutable (non-const list, const elements) so the admin screens can edit the
+  // catalog offline; the live repo persists through the backend instead.
+  final List<ShopCategory> _categories = [
+    const ShopCategory(
       id: 'grocery',
       nameAr: 'بقالة',
       nameEn: 'Grocery',
       emoji: '🛒',
     ),
-    ShopCategory(
+    const ShopCategory(
       id: 'produce',
       nameAr: 'خضار وفواكه',
       nameEn: 'Produce',
       emoji: '🥬',
     ),
-    ShopCategory(id: 'meats', nameAr: 'لحوم', nameEn: 'Meats', emoji: '🥩'),
-    ShopCategory(id: 'fish', nameAr: 'أسماك', nameEn: 'Fish', emoji: '🐟'),
-    ShopCategory(id: 'tools', nameAr: 'أدوات', nameEn: 'Tools', emoji: '🧰'),
+    const ShopCategory(id: 'meats', nameAr: 'لحوم', nameEn: 'Meats', emoji: '🥩'),
+    const ShopCategory(id: 'fish', nameAr: 'أسماك', nameEn: 'Fish', emoji: '🐟'),
+    const ShopCategory(id: 'tools', nameAr: 'أدوات', nameEn: 'Tools', emoji: '🧰'),
   ];
 
-  final List<Unit> _units = const [
-    Unit(id: 'piece', nameAr: 'قطعة', nameEn: 'Piece'),
-    Unit(id: 'kg', nameAr: 'كيلو', nameEn: 'Kg'),
-    Unit(id: 'g', nameAr: 'جرام', nameEn: 'Gram'),
-    Unit(id: 'l', nameAr: 'لتر', nameEn: 'Liter'),
-    Unit(id: 'ml', nameAr: 'مل', nameEn: 'ml'),
-    Unit(id: 'box', nameAr: 'علبة', nameEn: 'Box'),
-    Unit(id: 'bag', nameAr: 'كيس', nameEn: 'Bag'),
-    Unit(id: 'bottle', nameAr: 'زجاجة', nameEn: 'Bottle'),
-    Unit(id: 'can', nameAr: 'علبة معدنية', nameEn: 'Can'),
-    Unit(id: 'pack', nameAr: 'باكيت', nameEn: 'Pack'),
-    Unit(id: 'dozen', nameAr: 'دزينة', nameEn: 'Dozen'),
+  final List<Unit> _units = [
+    const Unit(id: 'piece', nameAr: 'قطعة', nameEn: 'Piece'),
+    const Unit(id: 'kg', nameAr: 'كيلو', nameEn: 'Kg'),
+    const Unit(id: 'g', nameAr: 'جرام', nameEn: 'Gram'),
+    const Unit(id: 'l', nameAr: 'لتر', nameEn: 'Liter'),
+    const Unit(id: 'ml', nameAr: 'مل', nameEn: 'ml'),
+    const Unit(id: 'box', nameAr: 'علبة', nameEn: 'Box'),
+    const Unit(id: 'bag', nameAr: 'كيس', nameEn: 'Bag'),
+    const Unit(id: 'bottle', nameAr: 'زجاجة', nameEn: 'Bottle'),
+    const Unit(id: 'can', nameAr: 'علبة معدنية', nameEn: 'Can'),
+    const Unit(id: 'pack', nameAr: 'باكيت', nameEn: 'Pack'),
+    const Unit(id: 'dozen', nameAr: 'دزينة', nameEn: 'Dozen'),
+  ];
+
+  // Universal brand/store autocomplete terms. Production starts empty; the fake
+  // seeds a few so the item-form autocomplete is demonstrable offline.
+  final List<CatalogTerm> _brands = [
+    const CatalogTerm(id: 'b1', name: 'المراعي'),
+    const CatalogTerm(id: 'b2', name: 'نادك'),
+    const CatalogTerm(id: 'b3', name: 'الوطنية'),
+    const CatalogTerm(id: 'b4', name: 'Nestlé'),
+  ];
+  final List<CatalogTerm> _stores = [
+    const CatalogTerm(id: 's1', name: 'كارفور'),
+    const CatalogTerm(id: 's2', name: 'بنده'),
+    const CatalogTerm(id: 's3', name: 'الدانوب'),
+    const CatalogTerm(id: 's4', name: 'لولو'),
   ];
 
   final List<Product> _products = [];
@@ -131,6 +148,7 @@ class FakeMoonaRepository implements MoonaRepository {
       'light',
     );
     _users['sami'] = _FakeUser('sami', 'Sami', '966539987766', 'ar', 'dark');
+    _users['noor']!.isAdmin = true; // Demo admin for the offline build.
 
     for (final id in _users.keys) {
       _active[id] = [];
@@ -316,9 +334,11 @@ class FakeMoonaRepository implements MoonaRepository {
         items: List.of(_active[owner] ?? const []),
         trash: List.of(_trash[owner] ?? const []),
       ),
-      categories: _categories,
-      units: _units,
+      categories: List.of(_categories),
+      units: List.of(_units),
       products: List.of(_products),
+      brands: List.of(_brands),
+      stores: List.of(_stores),
       sharing: _sharingStatus(),
       profileNames: _profileNames,
       suggestions: _suggestionsFor(owner),
@@ -815,6 +835,203 @@ class FakeMoonaRepository implements MoonaRepository {
     required String fileId,
   }) async => null;
 
+  // --- Admin ----------------------------------------------------------------
+
+  List<CatalogTerm> _termsFor(String kind) =>
+      kind == 'brands' ? _brands : _stores;
+
+  @override
+  Future<List<Map<String, dynamic>>> adminList(String kind) async {
+    await _delay();
+    switch (kind) {
+      case 'categories':
+        return _categories
+            .map((c) => {
+                  'stableId': c.id,
+                  'nameAr': c.nameAr,
+                  'nameEn': c.nameEn,
+                  'emoji': c.emoji,
+                  'active': true,
+                })
+            .toList();
+      case 'units':
+        return _units
+            .map((u) => {
+                  'stableId': u.id,
+                  'nameAr': u.nameAr,
+                  'nameEn': u.nameEn,
+                  'active': true,
+                })
+            .toList();
+      case 'products':
+        return _products
+            .map((p) => {
+                  r'$id': p.id,
+                  'displayName': p.displayName,
+                  'nameAr': p.nameAr,
+                  'nameEn': p.nameEn,
+                  'active': true,
+                })
+            .toList();
+      case 'users':
+        return _users.values
+            .map((u) => {
+                  'userId': u.id,
+                  'displayName': u.name,
+                  'phone': '+${u.phone}',
+                  'isAdmin': u.isAdmin,
+                })
+            .toList();
+      case 'brands':
+      case 'stores':
+        return _termsFor(kind)
+            .map((t) => {r'$id': t.id, 'name': t.name, 'active': t.active})
+            .toList();
+    }
+    return const [];
+  }
+
+  @override
+  Future<Map<String, dynamic>> adminCreate(
+    String kind,
+    Map<String, dynamic> data,
+  ) async {
+    await _delay();
+    final id = (data['id'] ?? 'x${DateTime.now().millisecondsSinceEpoch}')
+        .toString();
+    switch (kind) {
+      case 'categories':
+        _categories.add(ShopCategory(
+          id: id,
+          nameAr: (data['nameAr'] ?? '').toString(),
+          nameEn: (data['nameEn'] ?? '').toString(),
+          emoji: (data['emoji'] ?? '📦').toString(),
+        ));
+        return {'id': id};
+      case 'units':
+        _units.add(Unit(
+          id: id,
+          nameAr: (data['nameAr'] ?? '').toString(),
+          nameEn: (data['nameEn'] ?? '').toString(),
+        ));
+        return {'id': id};
+      case 'products':
+        final name = (data['displayName'] ?? data['nameEn'] ?? '').toString();
+        _products.add(Product(
+          id: id,
+          displayName: name,
+          nameAr: data['nameAr']?.toString(),
+          nameEn: data['nameEn']?.toString() ?? name,
+        ));
+        return {r'$id': id};
+      case 'brands':
+      case 'stores':
+        final term = CatalogTerm(id: id, name: (data['name'] ?? '').toString());
+        _termsFor(kind).add(term);
+        return {r'$id': id, 'name': term.name, 'active': true};
+    }
+    throw const MoonaException(MoonaException.invalidInput);
+  }
+
+  @override
+  Future<Map<String, dynamic>> adminUpdate(
+    String kind,
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    await _delay();
+    switch (kind) {
+      case 'categories':
+        final i = _categories.indexWhere((c) => c.id == id);
+        if (i >= 0) {
+          final c = _categories[i];
+          _categories[i] = ShopCategory(
+            id: id,
+            nameAr: (data['nameAr'] ?? c.nameAr).toString(),
+            nameEn: (data['nameEn'] ?? c.nameEn).toString(),
+            emoji: (data['emoji'] ?? c.emoji).toString(),
+          );
+        }
+      case 'units':
+        final i = _units.indexWhere((u) => u.id == id);
+        if (i >= 0) {
+          final u = _units[i];
+          _units[i] = Unit(
+            id: id,
+            nameAr: (data['nameAr'] ?? u.nameAr).toString(),
+            nameEn: (data['nameEn'] ?? u.nameEn).toString(),
+          );
+        }
+      case 'products':
+        final i = _products.indexWhere((p) => p.id == id);
+        if (i >= 0) {
+          final p = _products[i];
+          _products[i] = Product(
+            id: id,
+            displayName: (data['displayName'] ?? p.displayName).toString(),
+            nameAr: data['nameAr']?.toString() ?? p.nameAr,
+            nameEn: data['nameEn']?.toString() ?? p.nameEn,
+          );
+        }
+      case 'users':
+        final user = _users[id];
+        if (user != null) {
+          if (data.containsKey('isAdmin')) user.isAdmin = data['isAdmin'] == true;
+          if ((data['displayName'] ?? '').toString().trim().isNotEmpty) {
+            user.name = data['displayName'].toString().trim();
+          }
+        }
+      case 'brands':
+      case 'stores':
+        final list = _termsFor(kind);
+        final i = list.indexWhere((t) => t.id == id);
+        if (i >= 0) {
+          list[i] = CatalogTerm(
+            id: id,
+            name: (data['name'] ?? list[i].name).toString(),
+            active: data['active'] != false,
+          );
+        }
+    }
+    return {'id': id};
+  }
+
+  @override
+  Future<void> adminDelete(String kind, String id) async {
+    await _delay();
+    switch (kind) {
+      case 'categories':
+        _categories.removeWhere((c) => c.id == id);
+      case 'units':
+        _units.removeWhere((u) => u.id == id);
+      case 'products':
+        _products.removeWhere((p) => p.id == id);
+      case 'brands':
+      case 'stores':
+        _termsFor(kind).removeWhere((t) => t.id == id);
+      case 'users':
+        await adminResetUser(id);
+        _users.remove(id);
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> adminResetUser(String userId) async {
+    await _delay();
+    final items = (_active[userId]?.length ?? 0) + (_trash[userId]?.length ?? 0);
+    _active[userId]?.clear();
+    _trash[userId]?.clear();
+    final shares = _shares
+        .where((s) => s.ownerId == userId || s.viewerId == userId)
+        .length;
+    _shares.removeWhere((s) => s.ownerId == userId || s.viewerId == userId);
+    for (final user in _users.values) {
+      if (user.activeReceivedOwnerId == userId) user.activeReceivedOwnerId = null;
+    }
+    _users[userId]?.activeReceivedOwnerId = null;
+    return {'items': items, 'events': items, 'shares': shares, 'files': 0};
+  }
+
   @override
   Stream<RealtimeChange> realtimeChanges() => const Stream.empty();
 
@@ -834,6 +1051,7 @@ class _FakeUser {
   String language;
   String theme;
   String? activeReceivedOwnerId;
+  bool isAdmin = false;
 
   Profile get profile => Profile(
     id: id,
@@ -842,5 +1060,6 @@ class _FakeUser {
     language: language,
     theme: theme,
     activeReceivedOwnerId: activeReceivedOwnerId,
+    isAdmin: isAdmin,
   );
 }

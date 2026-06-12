@@ -383,6 +383,54 @@ class AppwriteMoonaRepository implements MoonaRepository {
       value == null ? null : DateTime.tryParse(value.toString());
 
   @override
+  Future<List<Map<String, dynamic>>> adminList(String kind) async {
+    final data = await _call(MoonaFunctions.adminList, {'kind': kind});
+    final items = data['items'];
+    if (items is! List) return const [];
+    return items
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
+  }
+
+  @override
+  Future<Map<String, dynamic>> adminCreate(
+    String kind,
+    Map<String, dynamic> data,
+  ) async {
+    final res = await _call(MoonaFunctions.adminCreate, {
+      'kind': kind,
+      'data': data,
+    });
+    return _asMap(res['item']);
+  }
+
+  @override
+  Future<Map<String, dynamic>> adminUpdate(
+    String kind,
+    String id,
+    Map<String, dynamic> data,
+  ) async {
+    final res = await _call(MoonaFunctions.adminUpdate, {
+      'kind': kind,
+      'id': id,
+      'data': data,
+    });
+    return _asMap(res['item']);
+  }
+
+  @override
+  Future<void> adminDelete(String kind, String id) async {
+    await _call(MoonaFunctions.adminDelete, {'kind': kind, 'id': id});
+  }
+
+  @override
+  Future<Map<String, dynamic>> adminResetUser(String userId) async {
+    final res = await _call(MoonaFunctions.adminResetUser, {'id': userId});
+    return _asMap(res['result']);
+  }
+
+  @override
   Stream<RealtimeChange> realtimeChanges() {
     final realtime = _realtime ??= Realtime(_client);
     final channels = MoonaCollections.all

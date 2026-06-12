@@ -158,6 +158,8 @@ class AppController extends Notifier<AppState> {
       categories: data.categories,
       units: data.units,
       products: data.products,
+      brands: data.brands,
+      stores: data.stores,
       sharing: data.sharing,
       profileNames: data.profileNames,
       suggestions: data.suggestions,
@@ -706,6 +708,8 @@ class AppController extends Notifier<AppState> {
       case MoonaCollections.categories:
       case MoonaCollections.units:
       case MoonaCollections.products:
+      case MoonaCollections.brands:
+      case MoonaCollections.stores:
         refresh();
       case MoonaCollections.listEvents:
         // Signal an open activity feed to refetch; the list itself reconciles

@@ -34,6 +34,8 @@ class AppState {
     this.categories = const [],
     this.units = const [],
     this.products = const [],
+    this.brands = const [],
+    this.stores = const [],
     this.sharing = SharingStatus.empty,
     this.profileNames = const {},
     this.suggestions = const [],
@@ -58,6 +60,11 @@ class AppState {
   final List<ShopCategory> categories;
   final List<Unit> units;
   final List<Product> products;
+
+  /// Universal brand/store autocomplete lists (admin-curated), surfaced to the
+  /// item form. Empty until the backend ships them.
+  final List<CatalogTerm> brands;
+  final List<CatalogTerm> stores;
   final SharingStatus sharing;
   final Map<String, String> profileNames;
 
@@ -364,6 +371,8 @@ class AppState {
     List<ShopCategory>? categories,
     List<Unit>? units,
     List<Product>? products,
+    List<CatalogTerm>? brands,
+    List<CatalogTerm>? stores,
     SharingStatus? sharing,
     Map<String, String>? profileNames,
     List<PurchaseSuggestion>? suggestions,
@@ -390,6 +399,8 @@ class AppState {
       categories: categories ?? this.categories,
       units: units ?? this.units,
       products: products ?? this.products,
+      brands: brands ?? this.brands,
+      stores: stores ?? this.stores,
       sharing: sharing ?? this.sharing,
       profileNames: profileNames ?? this.profileNames,
       suggestions: suggestions ?? this.suggestions,

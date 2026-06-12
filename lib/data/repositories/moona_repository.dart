@@ -173,6 +173,35 @@ abstract class MoonaRepository {
   /// the view URL, which authenticates the read on every platform.
   Future<String?> imageViewUrl({required String itemId, required String fileId});
 
+  // --- Admin (server-gated by isAdmin / MOONA_ADMIN_USER_IDS) --------------
+
+  /// Lists every row (active + inactive) for an admin [kind] — one of
+  /// `users`, `categories`, `units`, `products`, `brands`, `stores`. Returns
+  /// raw maps; the admin screens parse them with the matching domain model.
+  Future<List<Map<String, dynamic>>> adminList(String kind);
+
+  /// Creates a catalog row of [kind] from [data]; returns the created row.
+  Future<Map<String, dynamic>> adminCreate(
+    String kind,
+    Map<String, dynamic> data,
+  );
+
+  /// Patches a catalog/profile row of [kind] by [id] from [data]; returns the
+  /// updated row. For `users` only `isAdmin`/`displayName` are honoured.
+  Future<Map<String, dynamic>> adminUpdate(
+    String kind,
+    String id,
+    Map<String, dynamic> data,
+  );
+
+  /// Deletes a row of [kind] — soft (sets `active=false`) for catalogs, a full
+  /// cascade + account removal for `users`.
+  Future<void> adminDelete(String kind, String id);
+
+  /// Wipes a user's items, history, linked lists, insights and activity while
+  /// keeping their account. Returns the backend's deleted-row counts.
+  Future<Map<String, dynamic>> adminResetUser(String userId);
+
   /// Realtime change notifications for the signed-in session.
   Stream<RealtimeChange> realtimeChanges();
 

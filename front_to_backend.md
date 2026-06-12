@@ -853,3 +853,15 @@ The Appwrite Cloud project has 6 tables, the `item_images` bucket, one ready
 
 Replies for remaining product-shape questions can still go in
 `back_to_frontend.md`.
+
+---
+
+## Admin feature shipped (2026-06-12, full-stack, deployed)
+
+In-app admin surface built + deployed end-to-end (frontend `lib/features/admin/*`
++ backend ops + live MCP provision/deploy). Contract + provisioning details are in
+`back_to_frontend.md` → "Admin feature". Key points the frontend now relies on:
+`profile.isAdmin` in bootstrap gates the Settings → Admin entry; `catalogs.brands`
+/`catalogs.stores` feed the item-form brand/store autocomplete (free text still
+allowed); new actions `adminResetUser` + `adminUpdate('users',…)` + brands/stores
+admin kinds. moonaApi redeployed (`6a2c424784ad06540c58`).

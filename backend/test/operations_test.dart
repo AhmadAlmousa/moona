@@ -111,7 +111,8 @@ void main() {
     expect(await repo.listActiveItems('owner'), hasLength(1));
   });
 
-  test('trashing a product keeps one trash row and drops older duplicates '
+  test(
+      'trashing a product keeps one trash row and drops older duplicates '
       '(Issue 5)', () async {
     final repo = FakeRepo();
     final created = await createItem(
@@ -637,6 +638,145 @@ void main() {
       throwsMoonaCode(ErrorCodes.notFound),
     );
   });
+
+  test('requireAdmin passes for a profile flagged isAdmin and rejects others',
+      () async {
+    final repo = FakeRepo();
+    repo.profiles['boss'] = {
+      'userId': 'boss',
+      'displayName': 'Boss',
+      'isAdmin': true,
+    };
+
+    // Promoted profile is allowed.
+    await requireAdmin(repo, 'boss');
+
+    // A regular user (no env entry, isAdmin not set) is rejected.
+    await expectLater(
+      () => requireAdmin(repo, 'owner'),
+      throwsMoonaCode(ErrorCodes.adminOnly),
+    );
+    // An empty actor fails the actor guard first.
+    await expectLater(
+      () => requireAdmin(repo, ''),
+      throwsMoonaCode(ErrorCodes.unauthorized),
+    );
+  });
+
+  test('adminResetUser wipes a user\'s data but keeps the profile', () async {
+    final repo = FakeRepo();
+    repo.profiles['boss'] = {'userId': 'boss', 'isAdmin': true};
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk'},
+    );
+    await trashItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'itemId': created['item'][r'$id'], 'reason': 'scratch_timer'},
+    );
+    await setShoppingPresence(
+        repo: repo, actorId: 'owner', payload: {'active': true});
+    expect(repo.events, isNotEmpty);
+
+    final result = await adminResetUser(
+      repo: repo,
+      actorId: 'boss',
+      payload: {'id': 'owner'},
+    );
+
+    expect(result['result']['items'], greaterThan(0));
+    expect(await repo.listActiveItems('owner'), isEmpty);
+    expect(await repo.listTrashItems('owner'), isEmpty);
+    expect(repo.events.where((e) => e['ownerId'] == 'owner'), isEmpty);
+    expect(repo.shares.values.where((s) => s['ownerId'] == 'owner'), isEmpty);
+    expect(repo.presence['owner'], isNull);
+    // Account survives the reset.
+    expect(repo.profiles['owner'], isNotNull);
+    expect(repo.deletedAuthUsers, isEmpty);
+  });
+
+  test('adminDelete on a user cascades the data purge then removes the account',
+      () async {
+    final repo = FakeRepo();
+    repo.profiles['boss'] = {'userId': 'boss', 'isAdmin': true};
+    final created = await createItem(
+      repo: repo,
+      actorId: 'owner',
+      payload: {'productName': 'Milk'},
+    );
+    expect(repo.items[created['item'][r'$id']], isNotNull);
+
+    await adminDelete(
+      repo: repo,
+      actorId: 'boss',
+      payload: {'kind': 'users', 'id': 'owner'},
+    );
+
+    expect(repo.items.values.where((i) => i['ownerId'] == 'owner'), isEmpty);
+    expect(repo.shares.values.where((s) => s['ownerId'] == 'owner'), isEmpty);
+    expect(repo.profiles['owner'], isNull);
+    expect(repo.deletedAuthUsers, contains('owner'));
+  });
+
+  test('brands CRUD round-trips through the admin operations', () async {
+    final repo = FakeRepo();
+    repo.profiles['boss'] = {'userId': 'boss', 'isAdmin': true};
+
+    final created = await adminCreate(
+      repo: repo,
+      actorId: 'boss',
+      payload: {
+        'kind': 'brands',
+        'data': {'name': 'Almarai'}
+      },
+    );
+    expect(created['item']['name'], 'Almarai');
+
+    final listed = await adminList(
+      repo: repo,
+      actorId: 'boss',
+      payload: {'kind': 'brands'},
+    );
+    expect((listed['items'] as List), hasLength(1));
+
+    await adminDelete(
+      repo: repo,
+      actorId: 'boss',
+      payload: {'kind': 'brands', 'id': created['item'][r'$id']},
+    );
+    expect(repo.brands[created['item'][r'$id']]!['active'], isFalse);
+
+    // Non-admins cannot touch the catalog.
+    await expectLater(
+      () => adminCreate(
+        repo: repo,
+        actorId: 'owner',
+        payload: {
+          'kind': 'brands',
+          'data': {'name': 'Nadec'}
+        },
+      ),
+      throwsMoonaCode(ErrorCodes.adminOnly),
+    );
+  });
+
+  test('bootstrap returns brand and store catalogs', () async {
+    final repo = FakeRepo();
+    repo.brands['b1'] = {r'$id': 'b1', 'name': 'Almarai', 'active': true};
+    repo.stores['s1'] = {r'$id': 's1', 'name': 'Danube', 'active': true};
+
+    final result = await getBootstrapData(
+      repo: repo,
+      actorId: 'owner',
+      payload: {},
+    );
+
+    final catalogs = result['catalogs'] as JsonMap;
+    expect((catalogs['brands'] as List).single['name'], 'Almarai');
+    expect((catalogs['stores'] as List).single['name'], 'Danube');
+  });
 }
 
 class FakeRepo {
@@ -667,12 +807,15 @@ class FakeRepo {
   };
 
   final products = <String, JsonMap>{};
+  final brands = <String, JsonMap>{};
+  final stores = <String, JsonMap>{};
   final items = <String, JsonMap>{};
   final events = <JsonMap>[];
   final presence = <String, JsonMap>{};
   final pushes = <JsonMap>[];
   final updatedImagePermissions = <String>[];
   final refreshedOwners = <String>[];
+  final deletedAuthUsers = <String>[];
   var nextItemId = 1;
   var nextProductId = 1;
   var nextEventId = 1;
@@ -733,6 +876,96 @@ class FakeRepo {
 
   Future<List<JsonMap>> listProducts({bool activeOnly = true}) async =>
       products.values.toList();
+
+  Future<List<JsonMap>> listCatalogTerms(
+    Object? kind, {
+    bool activeOnly = true,
+  }) async {
+    final map = kind == 'brands' ? brands : stores;
+    return map.values
+        .where((term) => !activeOnly || term['active'] != false)
+        .toList();
+  }
+
+  Future<List<JsonMap>> adminList(Object? kind) async {
+    if (kind == 'users') return profiles.values.toList();
+    if (kind == 'brands') return brands.values.toList();
+    if (kind == 'stores') return stores.values.toList();
+    if (kind == 'products') return products.values.toList();
+    return const [];
+  }
+
+  Future<JsonMap> adminCreate(Object? kind, Object? rawInput) async {
+    final input = (rawInput as Map).cast<String, dynamic>();
+    final map = kind == 'brands' ? brands : stores;
+    final id = (input['id'] ?? 't${map.length + 1}').toString();
+    final name = input['name'].toString().trim();
+    final row = {
+      r'$id': id,
+      'name': name,
+      'normalizedName': name.toLowerCase(),
+      'active': input['active'] != false,
+    };
+    map[id] = row;
+    return row;
+  }
+
+  Future<JsonMap> adminUpdate(
+      Object? kind, Object? id, Object? rawInput) async {
+    final input = (rawInput as Map).cast<String, dynamic>();
+    if (kind == 'users') {
+      final patch = <String, dynamic>{};
+      if (input.containsKey('isAdmin')) {
+        patch['isAdmin'] = input['isAdmin'] == true;
+      }
+      if ((input['displayName'] ?? '').toString().trim().isNotEmpty) {
+        patch['displayName'] = input['displayName'].toString().trim();
+      }
+      profiles[id.toString()] = {...profiles[id.toString()]!, ...patch};
+      return profiles[id.toString()]!;
+    }
+    final map = kind == 'brands' ? brands : stores;
+    map[id.toString()] = {...map[id.toString()]!, ...input};
+    return map[id.toString()]!;
+  }
+
+  Future<dynamic> adminDelete(Object? kind, Object? id) async {
+    if (kind == 'users') {
+      deletedAuthUsers.add(id.toString());
+      return profiles.remove(id.toString());
+    }
+    final map = kind == 'brands' ? brands : stores;
+    map[id.toString()] = {...map[id.toString()]!, 'active': false};
+    return map[id.toString()];
+  }
+
+  Future<JsonMap> resetUserData(Object? userId) async {
+    final id = userId.toString();
+    final removedItems =
+        items.values.where((item) => item['ownerId'] == id).toList();
+    for (final item in removedItems) {
+      items.remove(item[r'$id']);
+    }
+    final removedEvents =
+        events.where((event) => event['ownerId'] == id).toList();
+    events.removeWhere((event) => event['ownerId'] == id);
+    final removedShares = shares.values
+        .where((share) => share['ownerId'] == id || share['viewerId'] == id)
+        .toList();
+    for (final share in removedShares) {
+      shares.remove(share[r'$id']);
+    }
+    presence.remove(id);
+    if (profiles.containsKey(id)) {
+      profiles[id] = {...profiles[id]!, 'activeReceivedOwnerId': ''};
+    }
+    return {
+      'items': removedItems.length,
+      'events': removedEvents.length,
+      'shares': removedShares.length,
+      'files': 0,
+    };
+  }
 
   Future<JsonMap> ensureProduct(Object? name) async {
     final normalized = name.toString().trim().toLowerCase();
