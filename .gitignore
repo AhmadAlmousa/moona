@@ -45,6 +45,13 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Environment / secrets — API keys live here and must never be committed.
+# The checked-in *.env.example templates document the required variables.
+.env
+.env.*
+!.env.example
+!*.env.example
+
 # Firebase client config — kept local, not committed (trips secret scanners on
 # the non-secret Firebase client API key). Each dev/CI drops these in by hand.
 /android/app/google-services.json
