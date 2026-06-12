@@ -44,6 +44,10 @@ Future<JsonMap> updatePreferences({
   if (payload.containsKey('displayName')) {
     patch['displayName'] = payload['displayName'].toString().trim();
   }
+  if (payload.containsKey('activeReceivedListId')) {
+    patch['activeReceivedListId'] =
+        (payload['activeReceivedListId'] ?? '').toString();
+  }
 
   final profile = await repo.updatePreferences(actorId, patch);
   return {'profile': asMap(profile)};
@@ -58,18 +62,50 @@ Future<JsonMap> getBootstrapData({
   final profile = asMap(await repo.getProfile(actorId));
   final viewerShares = listOfMaps(await repo.listSharesForViewer(actorId));
   final ownerId = listOwnerForViewer(profile, viewerShares);
-  await finalizeExpiredScratchesForOwner(repo, ownerId);
+
+  // Resolve the active list for the visible owner.
+  // For shared lists, the listId comes from the active accepted share.
+  // For own lists, the listId comes from the payload (client tracks it).
+  final String? listId;
+  if (ownerId != actorId) {
+    final activeOwnerId = (profile['activeReceivedOwnerId'] ?? '').toString();
+    final activeShare = viewerShares.where((s) =>
+        s['ownerId'] == activeOwnerId &&
+        s['viewerId'] == actorId &&
+        s['status'] == 'accepted').firstOrNull;
+    final rawListId = (activeShare?['listId'] ??
+            profile['activeReceivedListId'] ??
+            '')
+        .toString();
+    listId = rawListId.isEmpty ? null : rawListId;
+  } else {
+    final rawListId = (payload['listId'] ?? '').toString();
+    listId = rawListId.isEmpty ? null : rawListId;
+  }
+
+  await finalizeExpiredScratchesForOwner(repo, ownerId, listId: listId);
   final categories = listOfMaps(await repo.listCategories());
   final units = listOfMaps(await repo.listUnits());
   final products = listOfMaps(await repo.listProducts());
   final brands = listOfMaps(await repo.listCatalogTerms('brands'));
   final stores = listOfMaps(await repo.listCatalogTerms('stores'));
-  final items = listOfMaps(await repo.listActiveItems(ownerId));
+
+  // Load all of the owner's lists so the client can populate the list picker.
+  // For shared views, return only the shared list for display.
+  final allLists = ownerId == actorId
+      ? listOfMaps(await repo.listUserLists(ownerId))
+      : <JsonMap>[];
+  // Ensure a default list exists for owners without one yet.
+  final resolvedListId =
+      await ensureDefaultListId(repo, ownerId, actorId, listId, allLists);
+
+  final items =
+      listOfMaps(await repo.listActiveItems(ownerId, listId: resolvedListId));
   // De-dup trash for display: hide rows whose product is active again and
   // collapse same-product duplicates (keep newest). Pure — mutation paths
   // hard-delete the rest, so legacy/dirty data tidies up automatically.
   final trash = dedupeTrashForDisplay(
-    listOfMaps(await repo.listTrashItems(ownerId)),
+    listOfMaps(await repo.listTrashItems(ownerId, listId: resolvedListId)),
     items,
   );
   final shares = listOfMaps(await repo.listSharesForParticipant(actorId));
@@ -114,14 +150,21 @@ Future<JsonMap> getBootstrapData({
     limit: 6,
   );
 
+  // Enrich each list with the shared-list name when applicable.
+  final enrichedLists = ownerId == actorId
+      ? allLists
+      : await _sharedListForBootstrap(repo, ownerId, resolvedListId);
+
   return {
     'profile': profile,
     'visibleList': {
       'ownerId': ownerId,
+      'listId': resolvedListId ?? '',
       'isShared': ownerId != actorId,
       'items': sortListItems(enrichedItems),
       'trash': sortTrashItems(enrichedTrash),
     },
+    'lists': enrichedLists,
     'catalogs': {
       'categories': categories,
       'units': units,
@@ -134,6 +177,53 @@ Future<JsonMap> getBootstrapData({
     'shoppingPresence': enrichedPresence,
     'suggestions': {'items': suggestions},
   };
+}
+
+Future<String?> ensureDefaultListId(
+  dynamic repo,
+  String ownerId,
+  String actorId,
+  String? requestedListId,
+  List<JsonMap> allLists,
+) async {
+  // Viewers don't own lists; use the resolved listId directly.
+  if (ownerId != actorId) return requestedListId;
+
+  if (allLists.isEmpty) {
+    // First-time owner: create a default list.
+    final list = asMap(await repo.createUserList(
+      buildUserListDocument(
+          ownerId: ownerId, name: 'My List', isDefault: true),
+      ownerId,
+    ));
+    return documentId(list);
+  }
+
+  // If a specific list was requested, validate it belongs to the owner.
+  if ((requestedListId ?? '').isNotEmpty) {
+    final owned = allLists.any((l) => documentId(l) == requestedListId);
+    return owned ? requestedListId : documentId(allLists.first);
+  }
+
+  // Default to the list marked isDefault, or the first list.
+  final defaultList = allLists
+      .where((l) => l['isDefault'] == true)
+      .firstOrNull ?? allLists.first;
+  return documentId(defaultList);
+}
+
+Future<List<JsonMap>> _sharedListForBootstrap(
+  dynamic repo,
+  String ownerId,
+  String? listId,
+) async {
+  if ((listId ?? '').isEmpty) return [];
+  try {
+    final list = asNullableMap(await repo.getUserList(listId));
+    return list == null ? [] : [list];
+  } catch (_) {
+    return [];
+  }
 }
 
 Future<JsonMap> searchProductsOperation({
@@ -234,12 +324,18 @@ Future<JsonMap> createItem({
       listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
   assertCanMutateOwnerList(actorId, ownerId, ownerShares);
 
+  // Resolve the target list (for own lists, use payload; for shared lists, use
+  // the share's listId via the profile).
+  final listId = await resolveItemListId(repo, actorId, ownerId, payload);
+
   final product = asMap(await repo.ensureProduct(payload['productName']));
   final productId = documentId(product);
-  final activeItems = listOfMaps(await repo.listActiveItems(ownerId));
+  final activeItems =
+      listOfMaps(await repo.listActiveItems(ownerId, listId: listId));
   assertNoDuplicateActiveItem(activeItems, ownerId, productId);
 
-  final data = buildListItemDocument(payload, ownerId, actorId, productId);
+  final data =
+      buildListItemDocument(payload, ownerId, actorId, productId, listId: listId);
   if ((data['imageFileId'] ?? '').toString().isNotEmpty) {
     await repo.validateImageFile(data['imageFileId']);
   }
@@ -440,7 +536,9 @@ Future<JsonMap> clearTrash({
       listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
   assertCanMutateOwnerList(actorId, ownerId, ownerShares);
 
-  final trash = listOfMaps(await repo.listTrashItems(ownerId));
+  final listId = await resolveItemListId(repo, actorId, ownerId, payload);
+  final trash =
+      listOfMaps(await repo.listTrashItems(ownerId, listId: listId));
   for (final item in trash) {
     await repo.deleteListItem(documentId(item));
   }
@@ -483,8 +581,11 @@ Future<JsonMap> requestShare({
     existingShares: existingShares,
   );
 
+  final rawListId = (payload['listId'] ?? '').toString();
+  final listId = rawListId.isEmpty ? null : rawListId;
+
   final existing = asNullableMap(await repo.findShare(actorId, viewerId));
-  final data = buildShareDocument(actorId, viewerId!);
+  final data = buildShareDocument(actorId, viewerId!, listId: listId);
   final share = existing != null
       ? asMap(
           await repo.updateShare(
@@ -551,7 +652,12 @@ Future<JsonMap> respondShare({
   );
 
   if (accepted) {
-    await repo.setActiveReceivedOwner(actorId, share['ownerId']);
+    final shareListId = (updatedShare['listId'] ?? '').toString();
+    await repo.setActiveReceivedOwner(
+      actorId,
+      share['ownerId'],
+      listId: shareListId.isEmpty ? null : shareListId,
+    );
     await repo.refreshOwnerPermissions(share['ownerId']);
     await appendListEvent(
       repo,
@@ -996,6 +1102,197 @@ Future<JsonMap> adminMergeSuggestions({
   };
 }
 
+// ── Named Lists ──────────────────────────────────────────────────────────────
+
+Future<JsonMap> getLists({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final lists = listOfMaps(await repo.listUserLists(actorId));
+  return {'lists': lists};
+}
+
+Future<JsonMap> createList({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final existingLists = listOfMaps(await repo.listUserLists(actorId));
+  final isFirst = existingLists.isEmpty;
+  final doc = buildUserListDocument(
+    ownerId: actorId,
+    name: (payload['name'] ?? '').toString(),
+    emoji: payload['emoji']?.toString(),
+    sortOrder: existingLists.length,
+    isDefault: isFirst,
+  );
+  final list = asMap(await repo.createUserList(doc, actorId));
+  return {'list': list};
+}
+
+Future<JsonMap> updateList({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final listId = (payload['listId'] ?? '').toString();
+  if (listId.isEmpty) {
+    throw MoonaError(ErrorCodes.invalidInput, 'listId is required.');
+  }
+  final existing = asMap(await repo.getUserList(listId));
+  if ((existing['ownerId'] ?? '') != actorId) {
+    throw MoonaError(ErrorCodes.unauthorized, 'Not your list.', status: 403);
+  }
+  final patch = <String, dynamic>{'updatedAt': nowIso()};
+  if (payload.containsKey('name')) {
+    final trimmed = payload['name'].toString().trim();
+    if (trimmed.isEmpty) {
+      throw MoonaError(ErrorCodes.invalidInput, 'List name is required.');
+    }
+    patch['name'] = trimmed;
+  }
+  if (payload.containsKey('emoji')) {
+    patch['emoji'] = (payload['emoji'] ?? '').toString().trim();
+  }
+  if (payload.containsKey('sortOrder')) {
+    patch['sortOrder'] = intFrom(payload['sortOrder'], fallback: 0);
+  }
+  final updated = asMap(await repo.updateUserList(listId, patch));
+  return {'list': updated};
+}
+
+Future<JsonMap> deleteList({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final listId = (payload['listId'] ?? '').toString();
+  if (listId.isEmpty) {
+    throw MoonaError(ErrorCodes.invalidInput, 'listId is required.');
+  }
+  final existing = asMap(await repo.getUserList(listId));
+  if ((existing['ownerId'] ?? '') != actorId) {
+    throw MoonaError(ErrorCodes.unauthorized, 'Not your list.', status: 403);
+  }
+
+  final allLists = listOfMaps(await repo.listUserLists(actorId));
+  if (allLists.length <= 1) {
+    throw MoonaError(
+      ErrorCodes.invalidInput,
+      'Cannot delete the last list.',
+      status: 409,
+    );
+  }
+
+  final migrateToListId = (payload['migrateToListId'] ?? '').toString();
+  if (migrateToListId.isNotEmpty) {
+    // Validate target list belongs to the actor.
+    final target = asMap(await repo.getUserList(migrateToListId));
+    if ((target['ownerId'] ?? '') != actorId) {
+      throw MoonaError(ErrorCodes.unauthorized, 'Invalid target list.', status: 403);
+    }
+    // Re-assign all items from this list to the target list.
+    final allItems = listOfMaps(
+      await listAllItemsForList(repo, actorId, listId),
+    );
+    for (final item in allItems) {
+      await repo.updateListItem(
+        documentId(item),
+        {'listId': migrateToListId, 'updatedAt': nowIso()},
+        actorId,
+      );
+    }
+  } else {
+    // Hard-delete all items in the list.
+    final allItems = listOfMaps(
+      await listAllItemsForList(repo, actorId, listId),
+    );
+    for (final item in allItems) {
+      await repo.deleteListItem(documentId(item));
+    }
+  }
+
+  // If this was the default list, promote the first remaining list.
+  if (existing['isDefault'] == true) {
+    final remaining = allLists.where((l) => documentId(l) != listId).toList();
+    if (remaining.isNotEmpty) {
+      await repo.updateUserList(documentId(remaining.first), {
+        'isDefault': true,
+        'updatedAt': nowIso(),
+      });
+    }
+  }
+
+  await repo.deleteUserList(listId);
+  return {'deleted': listId};
+}
+
+// ── Barcode Lookup ────────────────────────────────────────────────────────────
+
+Future<JsonMap> lookupBarcode({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  requireActor(actorId);
+  final barcode = (payload['barcode'] ?? '').toString().trim();
+  if (barcode.isEmpty) {
+    throw MoonaError(ErrorCodes.invalidInput, 'barcode is required.');
+  }
+  final product = asNullableMap(await repo.findProductByBarcode(barcode));
+  if (product == null) {
+    // Log the unknown barcode for admin review (best-effort).
+    try {
+      await repo.upsertBarcodeSubmission(barcode, actorId);
+    } catch (_) {}
+    return {'product': null, 'found': false};
+  }
+  return {'product': product, 'found': true};
+}
+
+Future<JsonMap> adminGetBarcodeQueue({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  await requireAdmin(repo, actorId);
+  final submissions = listOfMaps(await repo.listUnresolvedBarcodeSubmissions());
+  return {'submissions': submissions};
+}
+
+Future<JsonMap> adminResolveBarcode({
+  required dynamic repo,
+  required String actorId,
+  required JsonMap payload,
+}) async {
+  await requireAdmin(repo, actorId);
+  final submissionId = (payload['submissionId'] ?? '').toString();
+  final productId = (payload['productId'] ?? '').toString();
+  if (submissionId.isEmpty || productId.isEmpty) {
+    throw MoonaError(
+        ErrorCodes.invalidInput, 'submissionId and productId are required.');
+  }
+
+  final submission = asMap(await repo.getBarcodeSubmission(submissionId));
+  final barcode = (submission['barcode'] ?? '').toString();
+
+  // Set the barcode on the product.
+  final product = asMap(await repo.getProduct(productId));
+  await repo.adminUpdate(
+    'products',
+    productId,
+    {...product, 'barcode': barcode},
+  );
+
+  await repo.resolveBarcodeSubmission(submissionId, productId);
+  return {'resolved': true, 'barcode': barcode, 'productId': productId};
+}
+
 Future<JsonMap> adminMergeProducts({
   required dynamic repo,
   required String actorId,
@@ -1033,6 +1330,13 @@ final operations = <String, Operation>{
   'undoScratchItem': undoScratchItem,
   'finalizeScratch': finalizeScratch,
   'setShoppingPresence': setShoppingPresence,
+  'getLists': getLists,
+  'createList': createList,
+  'updateList': updateList,
+  'deleteList': deleteList,
+  'lookupBarcode': lookupBarcode,
+  'adminGetBarcodeQueue': adminGetBarcodeQueue,
+  'adminResolveBarcode': adminResolveBarcode,
   'adminList': adminList,
   'adminCreate': adminCreate,
   'adminUpdate': adminUpdate,
@@ -1067,9 +1371,11 @@ Future<void> purgeTrashDuplicates(
 
 Future<void> finalizeExpiredScratchesForOwner(
   dynamic repo,
-  String ownerId,
-) async {
-  final activeItems = listOfMaps(await repo.listActiveItems(ownerId));
+  String ownerId, {
+  String? listId,
+}) async {
+  final activeItems =
+      listOfMaps(await repo.listActiveItems(ownerId, listId: listId));
   final ownerShares =
       listOfMaps(await repo.listAcceptedSharesForOwner(ownerId));
   for (final item in activeItems) {
@@ -1307,6 +1613,62 @@ Future<String> visibleOwnerId(dynamic repo, String actorId) async {
   final profile = asMap(await repo.getProfile(actorId));
   final shares = listOfMaps(await repo.listSharesForViewer(actorId));
   return listOwnerForViewer(profile, shares);
+}
+
+/// Resolves the listId an item should be created in / cleared from.
+/// For shared lists, reads the listId from the active accepted share.
+/// For own lists, reads from the payload or falls back to the default list.
+/// Creates a default list on demand if the owner has none.
+Future<String?> resolveItemListId(
+  dynamic repo,
+  String actorId,
+  String ownerId,
+  JsonMap payload,
+) async {
+  if (ownerId != actorId) {
+    // Viewing a shared list — use the share's listId.
+    final profile = asMap(await repo.getProfile(actorId));
+    final viewerShares = listOfMaps(await repo.listSharesForViewer(actorId));
+    final activeOwnerId =
+        (profile['activeReceivedOwnerId'] ?? '').toString();
+    final share = viewerShares.where((s) =>
+        s['ownerId'] == activeOwnerId &&
+        s['viewerId'] == actorId &&
+        s['status'] == 'accepted').firstOrNull;
+    final rawListId = (share?['listId'] ?? '').toString();
+    return rawListId.isEmpty ? null : rawListId;
+  }
+
+  // Own list: prefer the listId from the payload.
+  final rawListId = (payload['listId'] ?? '').toString();
+  if (rawListId.isNotEmpty) return rawListId;
+
+  // Fall back to the owner's default list (creating it if necessary).
+  final allLists = listOfMaps(await repo.listUserLists(ownerId));
+  if (allLists.isEmpty) {
+    final list = asMap(await repo.createUserList(
+      buildUserListDocument(
+          ownerId: ownerId, name: 'My List', isDefault: true),
+      ownerId,
+    ));
+    return documentId(list);
+  }
+  final defaultList = allLists
+      .where((l) => l['isDefault'] == true)
+      .firstOrNull ?? allLists.first;
+  return documentId(defaultList);
+}
+
+/// Lists all items (active + trash) for a given owner+list, used during
+/// deleteList migration / deletion.
+Future<List<dynamic>> listAllItemsForList(
+  dynamic repo,
+  String ownerId,
+  String listId,
+) async {
+  final active = await repo.listActiveItems(ownerId, listId: listId);
+  final trash = await repo.listTrashItems(ownerId, listId: listId);
+  return [...listOfMaps(active), ...listOfMaps(trash)];
 }
 
 Future<String> resolveProductId(

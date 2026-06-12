@@ -812,6 +812,8 @@ class FakeRepo {
   final items = <String, JsonMap>{};
   final events = <JsonMap>[];
   final presence = <String, JsonMap>{};
+  final userLists = <String, JsonMap>{};
+  final barcodeSubmissions = <String, JsonMap>{};
   final pushes = <JsonMap>[];
   final updatedImagePermissions = <String>[];
   final refreshedOwners = <String>[];
@@ -819,6 +821,8 @@ class FakeRepo {
   var nextItemId = 1;
   var nextProductId = 1;
   var nextEventId = 1;
+  var nextListId = 1;
+  var nextBarcodeId = 1;
 
   Future<JsonMap?> getProfile(Object? userId) async => profiles[userId];
 
@@ -956,6 +960,11 @@ class FakeRepo {
       shares.remove(share[r'$id']);
     }
     presence.remove(id);
+    final removedLists =
+        userLists.values.where((l) => l['ownerId'] == id).toList();
+    for (final list in removedLists) {
+      userLists.remove(list[r'$id']);
+    }
     if (profiles.containsKey(id)) {
       profiles[id] = {...profiles[id]!, 'activeReceivedOwnerId': ''};
     }
@@ -964,6 +973,7 @@ class FakeRepo {
       'events': removedEvents.length,
       'shares': removedShares.length,
       'files': 0,
+      'lists': removedLists.length,
     };
   }
 
@@ -985,13 +995,27 @@ class FakeRepo {
 
   Future<JsonMap?> getProduct(Object? productId) async => products[productId];
 
-  Future<List<JsonMap>> listActiveItems(Object? ownerId) async => items.values
-      .where((item) => item['ownerId'] == ownerId && item['status'] == 'active')
-      .toList();
+  Future<List<JsonMap>> listActiveItems(Object? ownerId,
+          {String? listId}) async =>
+      items.values
+          .where((item) =>
+              item['ownerId'] == ownerId &&
+              item['status'] == 'active' &&
+              (listId == null ||
+                  listId.isEmpty ||
+                  (item['listId'] ?? '') == listId))
+          .toList();
 
-  Future<List<JsonMap>> listTrashItems(Object? ownerId) async => items.values
-      .where((item) => item['ownerId'] == ownerId && item['status'] == 'trash')
-      .toList();
+  Future<List<JsonMap>> listTrashItems(Object? ownerId,
+          {String? listId}) async =>
+      items.values
+          .where((item) =>
+              item['ownerId'] == ownerId &&
+              item['status'] == 'trash' &&
+              (listId == null ||
+                  listId.isEmpty ||
+                  (item['listId'] ?? '') == listId))
+          .toList();
 
   Future<List<JsonMap>> listEvents(
     Object? ownerId, {
@@ -1094,8 +1118,16 @@ class FakeRepo {
     return share;
   }
 
-  Future<void> setActiveReceivedOwner(Object? viewerId, Object? ownerId) async {
-    final profile = {...profiles[viewerId]!, 'activeReceivedOwnerId': ownerId};
+  Future<void> setActiveReceivedOwner(
+    Object? viewerId,
+    Object? ownerId, {
+    String? listId,
+  }) async {
+    final profile = {
+      ...profiles[viewerId]!,
+      'activeReceivedOwnerId': ownerId,
+      if (listId != null) 'activeReceivedListId': listId,
+    };
     profiles[viewerId.toString()] = profile;
   }
 
@@ -1132,5 +1164,94 @@ class FakeRepo {
       'body': body,
       'data': data,
     });
+  }
+
+  // ── User Lists ──────────────────────────────────────────────────────────────
+
+  Future<List<JsonMap>> listUserLists(Object? ownerId) async => userLists.values
+      .where((l) => l['ownerId'] == ownerId)
+      .toList()
+    ..sort((a, b) => ((a['sortOrder'] ?? 0) as num)
+        .compareTo((b['sortOrder'] ?? 0) as num));
+
+  Future<JsonMap?> findDefaultUserList(Object? ownerId) async =>
+      userLists.values
+          .where((l) => l['ownerId'] == ownerId && l['isDefault'] == true)
+          .firstOrNull;
+
+  Future<JsonMap> getUserList(Object? listId) async =>
+      userLists[listId.toString()]!;
+
+  Future<JsonMap> createUserList(JsonMap data, String ownerId) async {
+    final id = 'l${nextListId++}';
+    final list = {...data, r'$id': id};
+    userLists[id] = list;
+    return list;
+  }
+
+  Future<JsonMap> updateUserList(Object? listId, JsonMap data) async {
+    final list = {...userLists[listId.toString()]!, ...data};
+    userLists[listId.toString()] = list;
+    return list;
+  }
+
+  Future<void> deleteUserList(Object? listId) async {
+    userLists.remove(listId.toString());
+  }
+
+  // ── Barcode ─────────────────────────────────────────────────────────────────
+
+  Future<JsonMap?> findProductByBarcode(Object? barcode) async =>
+      products.values
+          .where((p) => p['barcode'] == normalizeBarcode(barcode))
+          .firstOrNull;
+
+  Future<JsonMap?> findBarcodeSubmission(Object? barcode) async =>
+      barcodeSubmissions.values
+          .where((s) => s['barcode'] == normalizeBarcode(barcode))
+          .firstOrNull;
+
+  Future<JsonMap> upsertBarcodeSubmission(
+      String barcode, String userId) async {
+    final normalized = normalizeBarcode(barcode);
+    final existing = barcodeSubmissions.values
+        .where((s) => s['barcode'] == normalized)
+        .firstOrNull;
+    if (existing != null) {
+      final id = existing[r'$id'].toString();
+      barcodeSubmissions[id] = {
+        ...existing,
+        'count': ((existing['count'] ?? 1) as num).toInt() + 1,
+      };
+      return barcodeSubmissions[id]!;
+    }
+    final id = 'b${nextBarcodeId++}';
+    final sub = {
+      r'$id': id,
+      'barcode': normalized,
+      'submittedByUserId': userId,
+      'count': 1,
+      'resolvedProductId': '',
+    };
+    barcodeSubmissions[id] = sub;
+    return sub;
+  }
+
+  Future<List<JsonMap>> listUnresolvedBarcodeSubmissions() async =>
+      barcodeSubmissions.values
+          .where((s) => (s['resolvedProductId']?.toString() ?? '').isEmpty)
+          .toList();
+
+  Future<JsonMap> getBarcodeSubmission(Object? submissionId) async =>
+      barcodeSubmissions[submissionId.toString()]!;
+
+  Future<JsonMap> resolveBarcodeSubmission(
+      Object? submissionId, Object? productId) async {
+    final sub = {
+      ...barcodeSubmissions[submissionId.toString()]!,
+      'resolvedProductId': productId.toString(),
+    };
+    barcodeSubmissions[submissionId.toString()] = sub;
+    return sub;
   }
 }

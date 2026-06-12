@@ -240,6 +240,9 @@ Map<String, dynamic> buildProductDocument(
     'aliases': aliases,
     'normalizedAliases': normalizedAliases,
     'mergeTargetProductId': input['mergeTargetProductId'] ?? '',
+    'barcode': normalizeBarcode(input['barcode']),
+    'defaultUnitId': (input['defaultUnitId'] ?? '').toString(),
+    'defaultBrand': normalizeText(input['defaultBrand']),
     'active': input['active'] != false,
     'createdAt': input['createdAt'] ?? now,
     'updatedAt': now,
@@ -297,11 +300,13 @@ Map<String, dynamic> buildListItemDocument(
   Map<String, dynamic> input,
   String ownerId,
   String actorId,
-  String productId,
-) {
+  String productId, {
+  String? listId,
+}) {
   final now = nowIso();
   return {
     'ownerId': ownerId,
+    'listId': listId ?? (input['listId'] ?? '').toString(),
     'productId': productId,
     'count': NumberLike(input['count']).toDouble(defaultValue: 1),
     'unitId': input['unitId'] ?? '',
@@ -664,7 +669,11 @@ DateTime eventTime(Map<String, dynamic> event) =>
     DateTime.tryParse((event['createdAt'] ?? '').toString())?.toUtc() ??
     DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 
-Map<String, dynamic> buildShareDocument(String ownerId, String viewerId) {
+Map<String, dynamic> buildShareDocument(
+  String ownerId,
+  String viewerId, {
+  String? listId,
+}) {
   if (ownerId == viewerId) {
     throw MoonaError(
       ErrorCodes.shareSelf,
@@ -677,6 +686,7 @@ Map<String, dynamic> buildShareDocument(String ownerId, String viewerId) {
   return {
     'ownerId': ownerId,
     'viewerId': viewerId,
+    'listId': listId ?? '',
     'status': 'pending',
     'requestedAt': now,
     'respondedAt': '',
@@ -859,6 +869,50 @@ int _levenshteinDistance(String first, String second) {
   }
 
   return matrix[first.length][second.length];
+}
+
+String normalizeBarcode(Object? value) =>
+    (value ?? '').toString().trim().toUpperCase();
+
+Map<String, dynamic> buildUserListDocument({
+  required String ownerId,
+  required String name,
+  String? emoji,
+  int sortOrder = 0,
+  bool isDefault = false,
+  String? existingCreatedAt,
+}) {
+  final trimmedName = name.trim();
+  if (trimmedName.isEmpty) {
+    throw MoonaError(ErrorCodes.invalidInput, 'List name is required.');
+  }
+  final now = nowIso();
+  return {
+    'ownerId': ownerId,
+    'name': trimmedName,
+    'emoji': (emoji ?? '').trim(),
+    'sortOrder': sortOrder,
+    'isDefault': isDefault,
+    'createdAt': existingCreatedAt ?? now,
+    'updatedAt': now,
+  };
+}
+
+Map<String, dynamic> buildBarcodeSubmissionDocument({
+  required String barcode,
+  required String submittedByUserId,
+  int count = 1,
+  String? existingCreatedAt,
+}) {
+  final now = nowIso();
+  return {
+    'barcode': normalizeBarcode(barcode),
+    'submittedByUserId': submittedByUserId,
+    'count': count,
+    'resolvedProductId': '',
+    'createdAt': existingCreatedAt ?? now,
+    'updatedAt': now,
+  };
 }
 
 class NumberLike {

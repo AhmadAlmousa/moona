@@ -33,9 +33,9 @@ class _BootstrapCountingRepo extends FakeMoonaRepository {
   int bootstrapCount = 0;
 
   @override
-  Future<BootstrapData> bootstrap() {
+  Future<BootstrapData> bootstrap({String? listId}) {
     bootstrapCount++;
-    return super.bootstrap();
+    return super.bootstrap(listId: listId);
   }
 }
 

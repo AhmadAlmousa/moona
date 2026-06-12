@@ -81,6 +81,9 @@ dependencies:
   # Web/PWA DOM access (localStorage in the conditional KvStore web backing, and
   # the install-prompt JS bridge). Compiled in only on the web target.
   web: ^1.1.1
+  # Barcode scanning via the device camera (user scan-to-add + admin catalog
+  # builder). Degrades gracefully on web (shows "not supported" message).
+  mobile_scanner: ^6.0.4
 
 dev_dependencies:
   flutter_test:

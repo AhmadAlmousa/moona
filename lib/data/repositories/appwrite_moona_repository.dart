@@ -83,8 +83,10 @@ class AppwriteMoonaRepository implements MoonaRepository {
   }
 
   @override
-  Future<BootstrapData> bootstrap() async {
-    final data = await _call(MoonaFunctions.getBootstrapData, {});
+  Future<BootstrapData> bootstrap({String? listId}) async {
+    final data = await _call(MoonaFunctions.getBootstrapData, {
+      'listId': ?listId,
+    });
     final map = _asMap(data);
     // Cache the raw response so the next launch can hydrate the home screen
     // instantly (offline-first). Best-effort; never blocks the result.
@@ -190,12 +192,89 @@ class AppwriteMoonaRepository implements MoonaRepository {
       _call(MoonaFunctions.restoreTrashItem, {'itemId': itemId});
 
   @override
-  Future<void> clearTrash() => _call(MoonaFunctions.clearTrash, {});
+  Future<void> clearTrash({String? listId}) =>
+      _call(MoonaFunctions.clearTrash, {'listId': ?listId});
+
+  // --- Named lists -----------------------------------------------------------
 
   @override
-  Future<ShareRequestResult> requestShare(String phone) async {
+  Future<List<UserList>> getLists() async {
+    final data = await _call(MoonaFunctions.getLists, {});
+    final raw = data['lists'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => UserList.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  @override
+  Future<UserList> createList(String name, {String? emoji}) async {
+    final data = await _call(MoonaFunctions.createList, {
+      'name': name,
+      'emoji': ?emoji,
+    });
+    return UserList.fromJson(_asMap(data['list']));
+  }
+
+  @override
+  Future<UserList> updateList(
+    String listId, {
+    String? name,
+    String? emoji,
+    int? sortOrder,
+  }) async {
+    final data = await _call(MoonaFunctions.updateList, {
+      'listId': listId,
+      'name': ?name,
+      'emoji': ?emoji,
+      'sortOrder': ?sortOrder,
+    });
+    return UserList.fromJson(_asMap(data['list']));
+  }
+
+  @override
+  Future<void> deleteList(String listId, {String? migrateToListId}) =>
+      _call(MoonaFunctions.deleteList, {
+        'listId': listId,
+        'migrateToListId': ?migrateToListId,
+      });
+
+  // --- Barcode ---------------------------------------------------------------
+
+  @override
+  Future<Product?> lookupBarcode(String barcode) async {
+    final data = await _call(MoonaFunctions.lookupBarcode, {'barcode': barcode});
+    final product = data['product'];
+    if (product is! Map) return null;
+    return Product.fromJson(product.cast<String, dynamic>());
+  }
+
+  @override
+  Future<List<BarcodeSubmission>> adminGetBarcodeQueue() async {
+    final data = await _call(MoonaFunctions.adminGetBarcodeQueue, {});
+    final raw = data['submissions'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => BarcodeSubmission.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  @override
+  Future<void> adminResolveBarcode(String submissionId, String productId) =>
+      _call(MoonaFunctions.adminResolveBarcode, {
+        'submissionId': submissionId,
+        'productId': productId,
+      });
+
+  @override
+  Future<ShareRequestResult> requestShare(String phone, {String? listId}) async {
     try {
-      final data = await _call(MoonaFunctions.requestShare, {'phone': phone});
+      final data = await _call(MoonaFunctions.requestShare, {
+        'phone': phone,
+        'listId': ?listId,
+      });
       final share = data['share'];
       return ShareRequestResult(
         targetExists: true,

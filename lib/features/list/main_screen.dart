@@ -15,6 +15,7 @@ import '../sharing/settings_sheet.dart';
 import '../trash/trash_sheet.dart';
 import 'item_card.dart';
 import 'item_form.dart';
+import 'list_picker_sheet.dart';
 import 'sort_sheet.dart';
 import 'store_mode.dart';
 
@@ -62,10 +63,11 @@ class MainScreen extends ConsumerWidget {
                 _Header(
                   title: state.isShared
                       ? '${state.ownerName} · ${t.sharedListOf}'
-                      : t.myList,
+                      : (state.activeList?.displayName ?? t.myList),
                   ownerLine: state.isShared
                       ? '${t.receivingFrom} ${state.ownerName}'
                       : null,
+                  canSwitchList: !state.isShared && state.lists.length > 1,
                   trashCount: state.trash.length,
                   sharingActive: sharingActive,
                   settingsBusy: state.busy,
@@ -76,6 +78,7 @@ class MainScreen extends ConsumerWidget {
                   onTrash: () => showTrashSheet(context),
                   onShare: () => showContactFlow(context, ref),
                   onSettings: () => showSettingsSheet(context),
+                  onSwitchList: () => showListPickerSheet(context),
                 ),
                 const PresenceBanner(),
                 _FilterSortBar(
@@ -241,6 +244,7 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.title,
     required this.ownerLine,
+    required this.canSwitchList,
     required this.trashCount,
     required this.sharingActive,
     required this.settingsBusy,
@@ -251,10 +255,12 @@ class _Header extends StatelessWidget {
     required this.onTrash,
     required this.onShare,
     required this.onSettings,
+    required this.onSwitchList,
   });
 
   final String title;
   final String? ownerLine;
+  final bool canSwitchList;
   final int trashCount;
   final bool sharingActive;
   final bool settingsBusy;
@@ -265,6 +271,7 @@ class _Header extends StatelessWidget {
   final VoidCallback onTrash;
   final VoidCallback onShare;
   final VoidCallback onSettings;
+  final VoidCallback onSwitchList;
 
   @override
   Widget build(BuildContext context) {
@@ -278,14 +285,32 @@ class _Header extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 27,
-                    fontWeight: FontWeight.w900,
-                    color: c.onSurface,
+                GestureDetector(
+                  onTap: canSwitchList ? onSwitchList : null,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 27,
+                            fontWeight: FontWeight.w900,
+                            color: c.onSurface,
+                          ),
+                        ),
+                      ),
+                      if (canSwitchList) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.expand_more_rounded,
+                          color: c.onSurfaceVariant,
+                          size: 22,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 if (ownerLine != null)

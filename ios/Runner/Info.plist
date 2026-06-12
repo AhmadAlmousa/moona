@@ -6,6 +6,8 @@
 	<true/>
 	<key>NSContactsUsageDescription</key>
 	<string>Moona uses your contacts so you can pick who to share your shopping list with. Contact names stay on your device.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Moona uses the camera to scan product barcodes so you can quickly add items to your list.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

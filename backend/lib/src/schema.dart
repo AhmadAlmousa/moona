@@ -143,6 +143,11 @@ final appwriteSchema = AppwriteSchema(
             key: 'activeReceivedOwnerId',
             size: 64,
             required: false),
+        AttributeSpec(
+            type: 'string',
+            key: 'activeReceivedListId',
+            size: 64,
+            required: false),
         AttributeSpec(type: 'boolean', key: 'isAdmin', required: false),
         AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
         AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
@@ -245,6 +250,12 @@ final appwriteSchema = AppwriteSchema(
             key: 'mergeTargetProductId',
             size: 64,
             required: false),
+        AttributeSpec(
+            type: 'string', key: 'barcode', size: 128, required: false),
+        AttributeSpec(
+            type: 'string', key: 'defaultUnitId', size: 64, required: false),
+        AttributeSpec(
+            type: 'string', key: 'defaultBrand', size: 128, required: false),
         AttributeSpec(type: 'boolean', key: 'active', required: true),
         AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
         AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
@@ -262,6 +273,10 @@ final appwriteSchema = AppwriteSchema(
             key: 'merge_target',
             type: 'key',
             attributes: ['mergeTargetProductId']),
+        IndexSpec(
+            key: 'barcode_lookup',
+            type: 'key',
+            attributes: ['barcode']),
       ],
     ),
     TableSpec(
@@ -270,6 +285,7 @@ final appwriteSchema = AppwriteSchema(
       rowSecurity: true,
       attributes: [
         AttributeSpec(type: 'string', key: 'ownerId', size: 64, required: true),
+        AttributeSpec(type: 'string', key: 'listId', size: 64, required: false),
         AttributeSpec(
             type: 'string', key: 'productId', size: 64, required: true),
         AttributeSpec(type: 'float', key: 'count', required: true),
@@ -325,6 +341,10 @@ final appwriteSchema = AppwriteSchema(
             key: 'owner_scratch',
             type: 'key',
             attributes: ['ownerId', 'status', 'scratchExpiresAt']),
+        IndexSpec(
+            key: 'owner_list_status',
+            type: 'key',
+            attributes: ['ownerId', 'listId', 'status']),
       ],
     ),
     TableSpec(
@@ -335,6 +355,7 @@ final appwriteSchema = AppwriteSchema(
         AttributeSpec(type: 'string', key: 'ownerId', size: 64, required: true),
         AttributeSpec(
             type: 'string', key: 'viewerId', size: 64, required: true),
+        AttributeSpec(type: 'string', key: 'listId', size: 64, required: false),
         AttributeSpec(
             type: 'enum',
             key: 'status',
@@ -479,6 +500,61 @@ final appwriteSchema = AppwriteSchema(
         IndexSpec(key: 'name_search', type: 'fulltext', attributes: ['name']),
         IndexSpec(
             key: 'active_name', type: 'key', attributes: ['active', 'name']),
+      ],
+    ),
+    TableSpec(
+      id: CollectionIds.userLists,
+      name: 'User Lists',
+      rowSecurity: true,
+      attributes: [
+        AttributeSpec(type: 'string', key: 'ownerId', size: 64, required: true),
+        AttributeSpec(type: 'string', key: 'name', size: 128, required: true),
+        AttributeSpec(type: 'string', key: 'emoji', size: 16, required: false),
+        AttributeSpec(type: 'integer', key: 'sortOrder', required: false),
+        AttributeSpec(type: 'boolean', key: 'isDefault', required: true),
+        AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
+        AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
+      ],
+      indexes: [
+        IndexSpec(
+            key: 'owner_sort',
+            type: 'key',
+            attributes: ['ownerId', 'sortOrder']),
+        IndexSpec(
+            key: 'owner_default',
+            type: 'key',
+            attributes: ['ownerId', 'isDefault']),
+      ],
+    ),
+    TableSpec(
+      id: CollectionIds.barcodeSubmissions,
+      name: 'Barcode Submissions',
+      rowSecurity: true,
+      attributes: [
+        AttributeSpec(
+            type: 'string', key: 'barcode', size: 128, required: true),
+        AttributeSpec(
+            type: 'string',
+            key: 'submittedByUserId',
+            size: 64,
+            required: true),
+        AttributeSpec(type: 'integer', key: 'count', required: true),
+        AttributeSpec(
+            type: 'string',
+            key: 'resolvedProductId',
+            size: 64,
+            required: false),
+        AttributeSpec(type: 'datetime', key: 'createdAt', required: true),
+        AttributeSpec(type: 'datetime', key: 'updatedAt', required: true),
+      ],
+      indexes: [
+        IndexSpec(
+            key: 'barcode_unique', type: 'unique', attributes: ['barcode']),
+        IndexSpec(
+            key: 'count_desc',
+            type: 'key',
+            attributes: ['count'],
+            orders: ['desc']),
       ],
     ),
   ],

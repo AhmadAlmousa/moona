@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/config.dart';
 import '../core/util/phone.dart';
 import '../data/cache/contacts_lookup_cache.dart';
+import '../data/cache/kv_store.dart';
 import '../data/models/models.dart';
 import '../data/repositories/moona_repository.dart';
 import '../features/push/push_notifications.dart';
@@ -27,6 +28,9 @@ class AppController extends Notifier<AppState> {
   /// On-device cache of the last contacts registration lookup, so the share
   /// picker renders instantly while it refreshes in the background.
   final ContactsLookupCache _contactsCache = const ContactsLookupCache();
+
+  static const String _activeListKey = 'active_list_id';
+  KvStore get _kv => createKvStore();
 
   MoonaRepository get _repo => ref.read(repositoryProvider);
   PushNotifications get _push => ref.read(pushProvider);
@@ -52,6 +56,12 @@ class AppController extends Notifier<AppState> {
   // ── auth ──────────────────────────────────────────────────────────────
   Future<void> _restoreSession() async {
     if (state.screen != AppScreen.login || state.busy) return;
+    // Restore the previously active list id before bootstrap so _loadBootstrap
+    // can pass it on the first call.
+    final savedListId = await _kv.read(_activeListKey);
+    if (savedListId != null && savedListId.isNotEmpty && !_disposed) {
+      state = state.copyWith(activeListId: savedListId);
+    }
     // Offline-first: if a previous sign-in cached the list, show the home screen
     // immediately (with the sign-in indicator spinning via [busy]) while we
     // re-validate the session and refresh in the background. Otherwise fall back
@@ -135,8 +145,9 @@ class AppController extends Notifier<AppState> {
     );
   }
 
-  Future<void> _loadBootstrap() async {
-    final data = await _repo.bootstrap();
+  Future<void> _loadBootstrap({String? listId}) async {
+    final resolvedListId = listId ?? state.activeListId;
+    final data = await _repo.bootstrap(listId: resolvedListId);
     _applyBootstrap(data, busy: false);
   }
 
@@ -144,6 +155,7 @@ class AppController extends Notifier<AppState> {
   /// Keep [busy] true when hydrating from the local cache so the home screen
   /// shows the sign-in indicator (spinning gear) until the live refresh lands.
   void _applyBootstrap(BootstrapData data, {required bool busy}) {
+    final resolvedListId = data.visibleList.listId ?? state.activeListId;
     state = state.copyWith(
       screen: AppScreen.main,
       busy: busy,
@@ -153,6 +165,8 @@ class AppController extends Notifier<AppState> {
       dark: data.profile.isDark,
       ownerId: data.visibleList.ownerId,
       isShared: data.visibleList.isShared,
+      lists: data.lists,
+      activeListId: resolvedListId,
       items: data.visibleList.items,
       trash: data.visibleList.trash,
       categories: data.categories,
@@ -534,6 +548,75 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  // ── named lists ─────────────────────────────────────────────────────────────
+  /// Switches the active list and reloads items scoped to it. Persists the
+  /// choice so it survives app restarts.
+  Future<void> switchList(String listId) async {
+    state = state.copyWith(activeListId: listId, filter: 'all', sellerFilter: 'all');
+    unawaited(_kv.write(_activeListKey, listId));
+    await _loadBootstrap(listId: listId);
+  }
+
+  Future<UserList?> createList(String name, {String? emoji}) async {
+    try {
+      final list = await _repo.createList(name, emoji: emoji);
+      state = state.copyWith(lists: [...state.lists, list]);
+      return list;
+    } on MoonaException catch (e) {
+      _toast(_messageFor(e));
+      return null;
+    } catch (_) {
+      _toast(state.t.genericError);
+      return null;
+    }
+  }
+
+  Future<void> renameList(String listId, String name, {String? emoji}) async {
+    try {
+      final updated = await _repo.updateList(listId, name: name, emoji: emoji);
+      state = state.copyWith(
+        lists: [for (final l in state.lists) if (l.id == listId) updated else l],
+      );
+    } on MoonaException catch (e) {
+      _toast(_messageFor(e));
+    } catch (_) {
+      _toast(state.t.genericError);
+    }
+  }
+
+  /// Deletes a list. If [migrateToListId] is provided items are moved there;
+  /// otherwise they are deleted. Switches to the default list first when
+  /// deleting the currently active list.
+  Future<void> deleteList(String listId, {String? migrateToListId}) async {
+    try {
+      final wasActive = state.activeListId == listId;
+      await _repo.deleteList(listId, migrateToListId: migrateToListId);
+      final remaining = state.lists.where((l) => l.id != listId).toList();
+      final defaultList = remaining.where((l) => l.isDefault).firstOrNull ??
+          remaining.firstOrNull;
+      state = state.copyWith(
+        lists: remaining,
+        activeListId: wasActive ? defaultList?.id : state.activeListId,
+      );
+      if (wasActive && defaultList != null) {
+        await _loadBootstrap(listId: defaultList.id);
+      }
+    } on MoonaException catch (e) {
+      _toast(_messageFor(e));
+    } catch (_) {
+      _toast(state.t.genericError);
+    }
+  }
+
+  // ── barcode ─────────────────────────────────────────────────────────────────
+  Future<Product?> lookupBarcode(String barcode) async {
+    try {
+      return await _repo.lookupBarcode(barcode);
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── sharing ────────────────────────────────────────────────────────────
   /// The signed-in user's own dial code (e.g. `966`), derived from their phone,
   /// so a local number typed without a country code resolves to the country they
@@ -588,9 +671,10 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  Future<void> requestShare(String phone) async {
+  Future<void> requestShare(String phone, {String? listId}) async {
     try {
-      final result = await _repo.requestShare(phone);
+      final shareListId = listId ?? state.activeListId;
+      final result = await _repo.requestShare(phone, listId: shareListId);
       if (!result.targetExists) {
         _toast(state.t.invited);
         return;
@@ -717,6 +801,9 @@ class AppController extends Notifier<AppState> {
         state = state.copyWith(activityRevision: state.activityRevision + 1);
       case MoonaCollections.shoppingPresence:
         _reconcilePresence(change);
+      case MoonaCollections.userLists:
+        // Reload lists when another device creates/renames/deletes a list.
+        _loadBootstrap();
     }
   }
 

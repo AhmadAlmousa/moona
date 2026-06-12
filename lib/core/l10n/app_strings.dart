@@ -413,4 +413,56 @@ class AppStrings {
   String get adminDone => isArabic ? 'تم' : 'Done';
   String adminResetDone(int items) =>
       isArabic ? 'تم تصفير $items صنف' : 'Reset $items items';
+
+  // admin catalog — barcode fields
+  String get adminBarcode => isArabic ? 'الباركود' : 'Barcode';
+  String get adminDefaultUnit => isArabic ? 'الوحدة الافتراضية' : 'Default unit';
+  String get adminDefaultBrand =>
+      isArabic ? 'العلامة التجارية الافتراضية' : 'Default brand';
+
+  // admin barcode scanner hub
+  String get barcodeScanner =>
+      isArabic ? 'ماسح الباركود' : 'Barcode scanner';
+  String get scanTab => isArabic ? 'مسح' : 'Scan';
+  String get queueTab => isArabic ? 'قائمة الانتظار' : 'Queue';
+  String get scanBarcode => isArabic ? 'امسح الباركود' : 'Scan barcode';
+  String get barcodeFound => isArabic ? 'تم العثور على المنتج' : 'Product found';
+  String get barcodeNotFound =>
+      isArabic ? 'الباركود غير موجود في الكتالوج' : 'Barcode not in catalog';
+  String get barcodeReported => isArabic
+      ? 'تم إرسال الباركود للمراجعة'
+      : 'Barcode reported for review';
+  String get barcodeQueueEmpty =>
+      isArabic ? 'لا توجد باركودات في الانتظار' : 'No barcodes pending review';
+  String get barcodeDefine => isArabic ? 'تعريف المنتج' : 'Define product';
+  String get barcodeResolve => isArabic ? 'ربط بالمنتج' : 'Link to product';
+  String get scanTip =>
+      isArabic ? 'وجّه الكاميرا نحو الباركود' : 'Point camera at a barcode';
+  String get cameraDenied => isArabic
+      ? 'لا يوجد وصول للكاميرا. فعّلها من الإعدادات.'
+      : 'Camera access denied. Enable it in Settings.';
+  String get scannerNotSupported => isArabic
+      ? 'المسح غير مدعوم على هذا الجهاز'
+      : 'Barcode scanning is not supported on this platform';
+
+  // named lists
+  String get lists => isArabic ? 'القوائم' : 'Lists';
+  String get myLists => isArabic ? 'قوائمي' : 'My lists';
+  String get newList => isArabic ? 'قائمة جديدة' : 'New list';
+  String get listName => isArabic ? 'اسم القائمة' : 'List name';
+  String get renameList => isArabic ? 'تسمية القائمة' : 'Rename list';
+  String get deleteList => isArabic ? 'حذف القائمة' : 'Delete list';
+  String get deleteListWithItems => isArabic
+      ? 'هذه القائمة تحتوي على أصناف. ماذا تريد أن تفعل بها؟'
+      : 'This list has items. What would you like to do with them?';
+  String get moveItemsTo => isArabic ? 'نقل الأصناف إلى' : 'Move items to';
+  String get deleteItemsToo =>
+      isArabic ? 'حذف الأصناف أيضاً' : 'Delete items too';
+  String get listEmoji => isArabic ? 'الرمز التعبيري (اختياري)' : 'Emoji (optional)';
+  String get cannotDeleteDefault => isArabic
+      ? 'لا يمكن حذف القائمة الافتراضية'
+      : 'Cannot delete the default list';
+  String get sharingList => isArabic ? 'المشاركة من القائمة' : 'Sharing list';
+  String get selectListToShare =>
+      isArabic ? 'اختر القائمة للمشاركة' : 'Select list to share';
 }

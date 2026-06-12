@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
 import '../../shared/widgets/widgets.dart';
+import 'admin_barcode_scan_screen.dart';
 import 'admin_catalog_screen.dart';
 import 'admin_users_screen.dart';
 
@@ -75,6 +76,12 @@ class AdminScreen extends ConsumerWidget {
               context,
               const AdminCatalogScreen(kind: AdminCatalogKind.stores),
             ),
+          ),
+          const SizedBox(height: 9),
+          _HubRow(
+            icon: 'camera',
+            label: t.barcodeScanner,
+            onTap: () => _push(context, const AdminBarcodeScanScreen()),
           ),
         ],
       ),

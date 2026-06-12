@@ -70,10 +70,14 @@ class FakeMoonaRepository implements MoonaRepository {
   final Map<String, List<ListItem>> _active = {};
   final Map<String, List<ListItem>> _trash = {};
   final List<Share> _shares = [];
+  final Map<String, List<UserList>> _userLists = {};
+  final List<BarcodeSubmission> _barcodeSubmissions = [];
 
   String? _currentUserId;
   int _itemSeq = 100;
   int _shareSeq = 0;
+  int _listSeq = 0;
+  int _barcodeSeq = 0;
 
   static const List<List<String>> _productSeed = [
     ['خبز', 'Bread'],
@@ -153,6 +157,15 @@ class FakeMoonaRepository implements MoonaRepository {
     for (final id in _users.keys) {
       _active[id] = [];
       _trash[id] = [];
+      _userLists[id] = [
+        UserList(
+          id: 'list_${id}_default',
+          ownerId: id,
+          name: 'My List',
+          emoji: '🛒',
+          isDefault: true,
+        ),
+      ];
     }
 
     _active['noor'] = [
@@ -323,9 +336,13 @@ class FakeMoonaRepository implements MoonaRepository {
   }
 
   @override
-  Future<BootstrapData> bootstrap() async {
+  Future<BootstrapData> bootstrap({String? listId}) async {
     await _delay();
     final owner = _ownerId;
+    final myLists = _userLists[_me.id] ?? [];
+    final activeList = listId != null
+        ? myLists.where((l) => l.id == listId).firstOrNull
+        : myLists.where((l) => l.isDefault).firstOrNull ?? myLists.firstOrNull;
     return BootstrapData(
       profile: _me.profile,
       visibleList: VisibleList(
@@ -333,6 +350,7 @@ class FakeMoonaRepository implements MoonaRepository {
         isShared: owner != _me.id,
         items: List.of(_active[owner] ?? const []),
         trash: List.of(_trash[owner] ?? const []),
+        listId: activeList?.id,
       ),
       categories: List.of(_categories),
       units: List.of(_units),
@@ -340,6 +358,7 @@ class FakeMoonaRepository implements MoonaRepository {
       brands: List.of(_brands),
       stores: List.of(_stores),
       sharing: _sharingStatus(),
+      lists: List.of(myLists),
       profileNames: _profileNames,
       suggestions: _suggestionsFor(owner),
     );
@@ -566,12 +585,190 @@ class FakeMoonaRepository implements MoonaRepository {
   }
 
   @override
-  Future<void> clearTrash() async {
+  Future<void> clearTrash({String? listId}) async {
     _trash[_ownerId]!.clear();
   }
 
+  // --- Named lists -----------------------------------------------------------
+
   @override
-  Future<ShareRequestResult> requestShare(String phone) async {
+  Future<List<UserList>> getLists() async {
+    return List.of(_userLists[_me.id] ?? []);
+  }
+
+  @override
+  Future<UserList> createList(String name, {String? emoji}) async {
+    await _delay();
+    final id = 'list_${_me.id}_${++_listSeq}';
+    final list = UserList(
+      id: id,
+      ownerId: _me.id,
+      name: name,
+      emoji: emoji,
+      sortOrder: (_userLists[_me.id]?.length ?? 0),
+      isDefault: (_userLists[_me.id]?.isEmpty ?? true),
+    );
+    (_userLists[_me.id] ??= []).add(list);
+    return list;
+  }
+
+  @override
+  Future<UserList> updateList(
+    String listId, {
+    String? name,
+    String? emoji,
+    int? sortOrder,
+  }) async {
+    await _delay();
+    final lists = _userLists[_me.id] ?? [];
+    final i = lists.indexWhere((l) => l.id == listId);
+    if (i < 0) throw const MoonaException(MoonaException.notFound);
+    final old = lists[i];
+    final updated = UserList(
+      id: old.id,
+      ownerId: old.ownerId,
+      name: name ?? old.name,
+      emoji: emoji ?? old.emoji,
+      sortOrder: sortOrder ?? old.sortOrder,
+      isDefault: old.isDefault,
+    );
+    lists[i] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteList(String listId, {String? migrateToListId}) async {
+    await _delay();
+    final lists = _userLists[_me.id] ?? [];
+    final i = lists.indexWhere((l) => l.id == listId);
+    if (i < 0) return;
+    if (lists[i].isDefault) {
+      throw const MoonaException(MoonaException.invalidInput);
+    }
+    lists.removeAt(i);
+    final active = _active[_me.id] ?? [];
+    final trash = _trash[_me.id] ?? [];
+    if (migrateToListId != null) {
+      for (var j = 0; j < active.length; j++) {
+        if (active[j].listId == listId) {
+          active[j] = ListItem(
+            id: active[j].id,
+            ownerId: active[j].ownerId,
+            productId: active[j].productId,
+            count: active[j].count,
+            important: active[j].important,
+            status: active[j].status,
+            listId: migrateToListId,
+            unitId: active[j].unitId,
+            brand: active[j].brand,
+            seller: active[j].seller,
+            categoryId: active[j].categoryId,
+            imageFileId: active[j].imageFileId,
+            note: active[j].note,
+          );
+        }
+      }
+      for (var j = 0; j < trash.length; j++) {
+        if (trash[j].listId == listId) {
+          trash[j] = ListItem(
+            id: trash[j].id,
+            ownerId: trash[j].ownerId,
+            productId: trash[j].productId,
+            count: trash[j].count,
+            important: trash[j].important,
+            status: trash[j].status,
+            listId: migrateToListId,
+            unitId: trash[j].unitId,
+            brand: trash[j].brand,
+            seller: trash[j].seller,
+            categoryId: trash[j].categoryId,
+            trashedAt: trash[j].trashedAt,
+            trashedByUserId: trash[j].trashedByUserId,
+            trashedByDisplayName: trash[j].trashedByDisplayName,
+            trashReason: trash[j].trashReason,
+          );
+        }
+      }
+    } else {
+      active.removeWhere((item) => item.listId == listId);
+      trash.removeWhere((item) => item.listId == listId);
+    }
+  }
+
+  // --- Barcode ---------------------------------------------------------------
+
+  @override
+  Future<Product?> lookupBarcode(String barcode) async {
+    await _delay();
+    final normalized = barcode.trim().toUpperCase();
+    final match = _products.where(
+      (p) => (p.barcode?.toUpperCase() ?? '') == normalized,
+    ).firstOrNull;
+    if (match == null && normalized.isNotEmpty) {
+      final existing = _barcodeSubmissions.where(
+        (s) => s.barcode == normalized,
+      ).firstOrNull;
+      if (existing != null) {
+        final i = _barcodeSubmissions.indexOf(existing);
+        _barcodeSubmissions[i] = BarcodeSubmission(
+          id: existing.id,
+          barcode: existing.barcode,
+          submittedByUserId: existing.submittedByUserId,
+          count: existing.count + 1,
+        );
+      } else {
+        _barcodeSubmissions.add(BarcodeSubmission(
+          id: 'bs${++_barcodeSeq}',
+          barcode: normalized,
+          submittedByUserId: _me.id,
+          count: 1,
+        ));
+      }
+    }
+    return match;
+  }
+
+  @override
+  Future<List<BarcodeSubmission>> adminGetBarcodeQueue() async {
+    await _delay();
+    final unresolved = _barcodeSubmissions
+        .where((s) => !s.isResolved)
+        .toList()
+      ..sort((a, b) => b.count.compareTo(a.count));
+    return unresolved;
+  }
+
+  @override
+  Future<void> adminResolveBarcode(String submissionId, String productId) async {
+    await _delay();
+    final i = _barcodeSubmissions.indexWhere((s) => s.id == submissionId);
+    if (i < 0) return;
+    final sub = _barcodeSubmissions[i];
+    _barcodeSubmissions[i] = BarcodeSubmission(
+      id: sub.id,
+      barcode: sub.barcode,
+      submittedByUserId: sub.submittedByUserId,
+      count: sub.count,
+      resolvedProductId: productId,
+    );
+    // Set barcode on the product.
+    final pi = _products.indexWhere((p) => p.id == productId);
+    if (pi >= 0) {
+      final p = _products[pi];
+      _products[pi] = Product(
+        id: p.id,
+        displayName: p.displayName,
+        nameAr: p.nameAr,
+        nameEn: p.nameEn,
+        barcode: sub.barcode,
+        defaultUnitId: p.defaultUnitId,
+        defaultBrand: p.defaultBrand,
+      );
+    }
+  }
+
+  @override
+  Future<ShareRequestResult> requestShare(String phone, {String? listId}) async {
     await _delay();
     final digits = normalizePhone(phone).digits;
     final target = _users.values.where((u) => u.phone == digits).firstOrNull;
@@ -581,11 +778,14 @@ class FakeMoonaRepository implements MoonaRepository {
     if (target.id == _me.id) {
       throw const MoonaException(MoonaException.shareSelf);
     }
+    final activeListId = listId ??
+        _userLists[_me.id]?.where((l) => l.isDefault).firstOrNull?.id;
     final share = Share(
       id: 's${++_shareSeq + 1}',
       ownerId: _me.id,
       viewerId: target.id,
       status: ShareStatus.pending,
+      listId: activeListId,
     );
     _shares.add(share);
     return ShareRequestResult(targetExists: true, share: share);
@@ -870,6 +1070,9 @@ class FakeMoonaRepository implements MoonaRepository {
                   'displayName': p.displayName,
                   'nameAr': p.nameAr,
                   'nameEn': p.nameEn,
+                  if (p.barcode != null) 'barcode': p.barcode,
+                  if (p.defaultUnitId != null) 'defaultUnitId': p.defaultUnitId,
+                  if (p.defaultBrand != null) 'defaultBrand': p.defaultBrand,
                   'active': true,
                 })
             .toList();
@@ -922,6 +1125,9 @@ class FakeMoonaRepository implements MoonaRepository {
           displayName: name,
           nameAr: data['nameAr']?.toString(),
           nameEn: data['nameEn']?.toString() ?? name,
+          barcode: data['barcode']?.toString(),
+          defaultUnitId: data['defaultUnitId']?.toString(),
+          defaultBrand: data['defaultBrand']?.toString(),
         ));
         return {r'$id': id};
       case 'brands':
@@ -971,6 +1177,15 @@ class FakeMoonaRepository implements MoonaRepository {
             displayName: (data['displayName'] ?? p.displayName).toString(),
             nameAr: data['nameAr']?.toString() ?? p.nameAr,
             nameEn: data['nameEn']?.toString() ?? p.nameEn,
+            barcode: data.containsKey('barcode')
+                ? data['barcode']?.toString()
+                : p.barcode,
+            defaultUnitId: data.containsKey('defaultUnitId')
+                ? data['defaultUnitId']?.toString()
+                : p.defaultUnitId,
+            defaultBrand: data.containsKey('defaultBrand')
+                ? data['defaultBrand']?.toString()
+                : p.defaultBrand,
           );
         }
       case 'users':
@@ -1021,6 +1236,8 @@ class FakeMoonaRepository implements MoonaRepository {
     final items = (_active[userId]?.length ?? 0) + (_trash[userId]?.length ?? 0);
     _active[userId]?.clear();
     _trash[userId]?.clear();
+    final lists = _userLists[userId]?.length ?? 0;
+    _userLists[userId]?.clear();
     final shares = _shares
         .where((s) => s.ownerId == userId || s.viewerId == userId)
         .length;
@@ -1029,7 +1246,7 @@ class FakeMoonaRepository implements MoonaRepository {
       if (user.activeReceivedOwnerId == userId) user.activeReceivedOwnerId = null;
     }
     _users[userId]?.activeReceivedOwnerId = null;
-    return {'items': items, 'events': items, 'shares': shares, 'files': 0};
+    return {'items': items, 'events': items, 'shares': shares, 'files': 0, 'lists': lists};
   }
 
   @override

@@ -70,7 +70,8 @@ abstract class MoonaRepository {
 
   /// Loads everything the main screen needs in one round-trip. On success the
   /// raw response is cached locally for [cachedBootstrap].
-  Future<BootstrapData> bootstrap();
+  /// Pass [listId] to show a specific list; omit for the default list.
+  Future<BootstrapData> bootstrap({String? listId});
 
   /// Returns the last locally-cached [bootstrap] result without any network or
   /// session, or null when nothing is cached. Used to render the home screen
@@ -118,9 +119,39 @@ abstract class MoonaRepository {
 
   Future<void> restoreTrashItem(String itemId);
 
-  Future<void> clearTrash();
+  Future<void> clearTrash({String? listId});
 
-  Future<ShareRequestResult> requestShare(String phone);
+  // --- Named lists -----------------------------------------------------------
+
+  Future<List<UserList>> getLists();
+
+  Future<UserList> createList(String name, {String? emoji});
+
+  Future<UserList> updateList(
+    String listId, {
+    String? name,
+    String? emoji,
+    int? sortOrder,
+  });
+
+  /// Deletes a named list. If [migrateToListId] is provided, all items on the
+  /// deleted list are moved there first; otherwise items are hard-deleted.
+  Future<void> deleteList(String listId, {String? migrateToListId});
+
+  // --- Barcode ---------------------------------------------------------------
+
+  /// Looks up a product by barcode. Returns null when not found. If not found
+  /// and the user is authenticated, the barcode is logged to the submission
+  /// queue for admin review.
+  Future<Product?> lookupBarcode(String barcode);
+
+  /// Admin: returns the list of unresolved barcode submissions sorted by count.
+  Future<List<BarcodeSubmission>> adminGetBarcodeQueue();
+
+  /// Admin: maps a submission to an existing product and marks it resolved.
+  Future<void> adminResolveBarcode(String submissionId, String productId);
+
+  Future<ShareRequestResult> requestShare(String phone, {String? listId});
 
   Future<void> respondShare(String shareId, {required bool accepted});
 

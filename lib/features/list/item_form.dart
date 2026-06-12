@@ -10,6 +10,7 @@ import '../../app/providers.dart';
 import '../../core/theme/moona_colors.dart';
 import '../../core/util/format.dart';
 import '../../data/models/models.dart';
+import '../../shared/widgets/barcode_scanner_sheet.dart';
 import '../../shared/widgets/widgets.dart';
 
 /// Most items a single paste can add at once (keeps the batch sane).
@@ -147,6 +148,33 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
     });
   }
 
+  Future<void> _scanBarcode(BuildContext context, AppState state) async {
+    final t = state.t;
+    final controller = ref.read(appControllerProvider.notifier);
+    await showBarcodeScannerSheet(
+      context,
+      t: t,
+      onScanned: (barcode) async {
+        final product = await controller.lookupBarcode(barcode);
+        if (!mounted) return;
+        if (product != null) {
+          setState(() {
+            _name.text = product.label(state.lang);
+            if (product.defaultUnitId != null) _unitId = product.defaultUnitId;
+            if (product.defaultBrand != null && product.defaultBrand!.isNotEmpty) {
+              _brand.text = product.defaultBrand!;
+            }
+            _showSuggestions = false;
+          });
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(t.barcodeReported)),
+          );
+        }
+      },
+    );
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
@@ -271,20 +299,29 @@ class _ItemFormState extends ConsumerState<_ItemForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.editing == null)
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: MoonaButton(
-              label: t.pasteList,
-              icon: 'list',
-              variant: MoonaButtonVariant.text,
-              height: 34,
-              onPressed: () async {
-                final added = await showBulkPasteSheet(context, ref);
-                if (added != null && added > 0 && context.mounted) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              MoonaButton(
+                label: t.scanBarcode,
+                icon: 'camera',
+                variant: MoonaButtonVariant.text,
+                height: 34,
+                onPressed: () => _scanBarcode(context, state),
+              ),
+              MoonaButton(
+                label: t.pasteList,
+                icon: 'list',
+                variant: MoonaButtonVariant.text,
+                height: 34,
+                onPressed: () async {
+                  final added = await showBulkPasteSheet(context, ref);
+                  if (added != null && added > 0 && context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+              ),
+            ],
           ),
         _NameField(
           controller: _name,

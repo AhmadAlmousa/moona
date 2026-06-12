@@ -11,6 +11,13 @@
     <!-- Android 13+ runtime permission for FCM push notifications. Requested at
          runtime by firebase_messaging's requestPermission() after sign-in. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Camera for barcode scanning (mobile_scanner). The OS permission is
+         requested at runtime when the scanner sheet opens. mobile_scanner already
+         merges this in, but we declare it explicitly for clarity and pair it with a
+         non-required camera feature so the app stays installable on camera-less
+         devices (scanning degrades gracefully). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <application
         android:label="moona"
         android:name="${applicationName}"

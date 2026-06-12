@@ -39,6 +39,8 @@ Shop by seller · Bulk paste · Push notifications · Someone's-shopping-now (pr
 **Parked (out of scope here):** Multiple named lists · Estimated budget · Barcode
 scan · Assign-to-viewer · Sharing roles · Invite-unregistered.
 
+**Shipped (subsequent session):** Multiple Named Lists (list create/rename/delete/switch, list-scoped sharing, barcode field on lists) · Barcode Scan (admin catalog builder with scan + submission queue, user scan-to-add in item form).
+
 ## Architecture grounding (what already exists)
 - **Frontend** (`lib/`): central `AppController`/`AppState`
   (`lib/app/app_controller.dart`), repo abstraction

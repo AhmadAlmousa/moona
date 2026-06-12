@@ -17,6 +17,8 @@ abstract final class CollectionIds {
   static const shoppingPresence = 'shopping_presence';
   static const brands = 'brands';
   static const stores = 'stores';
+  static const userLists = 'user_lists';
+  static const barcodeSubmissions = 'barcode_submissions';
 
   static const all = [
     profiles,
@@ -29,6 +31,8 @@ abstract final class CollectionIds {
     shoppingPresence,
     brands,
     stores,
+    userLists,
+    barcodeSubmissions,
   ];
 }
 
@@ -55,6 +59,13 @@ abstract final class FunctionIds {
   static const undoScratchItem = 'undoScratchItem';
   static const finalizeScratch = 'finalizeScratch';
   static const setShoppingPresence = 'setShoppingPresence';
+  static const getLists = 'getLists';
+  static const createList = 'createList';
+  static const updateList = 'updateList';
+  static const deleteList = 'deleteList';
+  static const lookupBarcode = 'lookupBarcode';
+  static const adminGetBarcodeQueue = 'adminGetBarcodeQueue';
+  static const adminResolveBarcode = 'adminResolveBarcode';
   static const adminList = 'adminList';
   static const adminCreate = 'adminCreate';
   static const adminUpdate = 'adminUpdate';
@@ -85,4 +96,6 @@ Map<String, String> get realtimeChannels => {
           'tablesdb.$databaseId.tables.${CollectionIds.brands}.rows',
       CollectionIds.stores:
           'tablesdb.$databaseId.tables.${CollectionIds.stores}.rows',
+      CollectionIds.userLists:
+          'tablesdb.$databaseId.tables.${CollectionIds.userLists}.rows',
     };

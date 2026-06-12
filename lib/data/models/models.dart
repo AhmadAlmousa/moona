@@ -57,6 +57,7 @@ class Profile {
     required this.language,
     required this.theme,
     this.activeReceivedOwnerId,
+    this.activeReceivedListId,
     this.isAdmin = false,
   });
 
@@ -66,6 +67,7 @@ class Profile {
   final String language;
   final String theme;
   final String? activeReceivedOwnerId;
+  final String? activeReceivedListId;
 
   /// Whether the backend reports this account as an admin (in-app promotion or
   /// the `MOONA_ADMIN_USER_IDS` seed). Absent on older profiles ⇒ false.
@@ -80,6 +82,7 @@ class Profile {
     language: _string(m, 'language', 'ar'),
     theme: _string(m, 'theme', 'light'),
     activeReceivedOwnerId: _stringOrNull(m, 'activeReceivedOwnerId'),
+    activeReceivedListId: _stringOrNull(m, 'activeReceivedListId'),
     isAdmin: m['isAdmin'] == true,
   );
 
@@ -91,6 +94,7 @@ class Profile {
         language: language ?? this.language,
         theme: theme ?? this.theme,
         activeReceivedOwnerId: activeReceivedOwnerId,
+        activeReceivedListId: activeReceivedListId,
         isAdmin: isAdmin,
       );
 }
@@ -164,12 +168,18 @@ class Product {
     required this.displayName,
     this.nameAr,
     this.nameEn,
+    this.barcode,
+    this.defaultUnitId,
+    this.defaultBrand,
   });
 
   final String id;
   final String displayName;
   final String? nameAr;
   final String? nameEn;
+  final String? barcode;
+  final String? defaultUnitId;
+  final String? defaultBrand;
 
   /// Name in the active language, falling back to [displayName].
   String label(String lang) {
@@ -184,6 +194,9 @@ class Product {
     displayName: _string(m, 'displayName'),
     nameAr: _stringOrNull(m, 'nameAr'),
     nameEn: _stringOrNull(m, 'nameEn'),
+    barcode: _stringOrNull(m, 'barcode'),
+    defaultUnitId: _stringOrNull(m, 'defaultUnitId'),
+    defaultBrand: _stringOrNull(m, 'defaultBrand'),
   );
 }
 
@@ -198,6 +211,7 @@ class ListItem {
     required this.count,
     required this.important,
     required this.status,
+    this.listId,
     this.unitId,
     this.brand = '',
     this.seller = '',
@@ -223,6 +237,7 @@ class ListItem {
   final double count;
   final bool important;
   final ItemStatus status;
+  final String? listId;
   final String? unitId;
   final String brand;
   final String seller;
@@ -268,6 +283,7 @@ class ListItem {
     status: _string(m, 'status', 'active') == 'trash'
         ? ItemStatus.trash
         : ItemStatus.active,
+    listId: _stringOrNull(m, 'listId'),
     unitId: _stringOrNull(m, 'unitId'),
     brand: _string(m, 'brand'),
     seller: _string(m, 'seller'),
@@ -302,6 +318,7 @@ class ListItem {
     count: count,
     important: important,
     status: status ?? this.status,
+    listId: listId,
     unitId: unitId,
     brand: brand,
     seller: seller,
@@ -347,6 +364,7 @@ class Share {
     required this.ownerId,
     required this.viewerId,
     required this.status,
+    this.listId,
     this.counterpartyName,
     this.counterpartyPhone,
   });
@@ -355,6 +373,7 @@ class Share {
   final String ownerId;
   final String viewerId;
   final ShareStatus status;
+  final String? listId;
 
   /// Resolved display name / phone of the other party (pending backend
   /// support — see `front_to_backend.md` item 3). May be filled by the fake
@@ -367,6 +386,7 @@ class Share {
     ownerId: _string(m, 'ownerId'),
     viewerId: _string(m, 'viewerId'),
     status: _shareStatus(_string(m, 'status', 'pending')),
+    listId: _stringOrNull(m, 'listId'),
     counterpartyName: _stringOrNull(m, 'counterpartyName'),
     counterpartyPhone: _stringOrNull(m, 'counterpartyPhone'),
   );
@@ -376,6 +396,7 @@ class Share {
     ownerId: ownerId,
     viewerId: viewerId,
     status: status,
+    listId: listId,
     counterpartyName: name ?? counterpartyName,
     counterpartyPhone: phone ?? counterpartyPhone,
   );
@@ -558,18 +579,21 @@ class VisibleList {
     required this.isShared,
     required this.items,
     required this.trash,
+    this.listId,
   });
 
   final String ownerId;
   final bool isShared;
   final List<ListItem> items;
   final List<ListItem> trash;
+  final String? listId;
 
   factory VisibleList.fromJson(Map<String, dynamic> m) => VisibleList(
     ownerId: _string(m, 'ownerId'),
     isShared: _bool(m, 'isShared'),
     items: _itemList(m['items']),
     trash: _itemList(m['trash']),
+    listId: _stringOrNull(m, 'listId'),
   );
 }
 
@@ -582,6 +606,65 @@ List<ListItem> _itemList(dynamic raw) {
 }
 
 @immutable
+class UserList {
+  const UserList({
+    required this.id,
+    required this.ownerId,
+    required this.name,
+    this.emoji,
+    this.sortOrder = 0,
+    this.isDefault = false,
+  });
+
+  final String id;
+  final String ownerId;
+  final String name;
+  final String? emoji;
+  final int sortOrder;
+  final bool isDefault;
+
+  String get displayName =>
+      emoji != null && emoji!.isNotEmpty ? '$emoji $name' : name;
+
+  factory UserList.fromJson(Map<String, dynamic> m) => UserList(
+    id: _docId(m),
+    ownerId: _string(m, 'ownerId'),
+    name: _string(m, 'name'),
+    emoji: _stringOrNull(m, 'emoji'),
+    sortOrder: _int(m, 'sortOrder'),
+    isDefault: _bool(m, 'isDefault'),
+  );
+}
+
+@immutable
+class BarcodeSubmission {
+  const BarcodeSubmission({
+    required this.id,
+    required this.barcode,
+    required this.submittedByUserId,
+    required this.count,
+    this.resolvedProductId,
+  });
+
+  final String id;
+  final String barcode;
+  final String submittedByUserId;
+  final int count;
+  final String? resolvedProductId;
+
+  bool get isResolved => resolvedProductId != null;
+
+  factory BarcodeSubmission.fromJson(Map<String, dynamic> m) =>
+      BarcodeSubmission(
+        id: _docId(m),
+        barcode: _string(m, 'barcode'),
+        submittedByUserId: _string(m, 'submittedByUserId'),
+        count: _int(m, 'count', 1),
+        resolvedProductId: _stringOrNull(m, 'resolvedProductId'),
+      );
+}
+
+@immutable
 class BootstrapData {
   const BootstrapData({
     required this.profile,
@@ -590,6 +673,7 @@ class BootstrapData {
     required this.units,
     required this.products,
     required this.sharing,
+    this.lists = const [],
     this.brands = const [],
     this.stores = const [],
     this.profileNames = const {},
@@ -603,6 +687,9 @@ class BootstrapData {
   final List<Unit> units;
   final List<Product> products;
   final SharingStatus sharing;
+
+  /// All named lists for the current user. Empty on older deployments.
+  final List<UserList> lists;
 
   /// Universal brand/store autocomplete lists (admin-curated). Empty until the
   /// backend deploy that ships them lands.
@@ -639,6 +726,7 @@ class BootstrapData {
               (m['sharing'] as Map).cast<String, dynamic>(),
             )
           : SharingStatus.empty,
+      lists: _mapList(m['lists'], UserList.fromJson),
       profileNames: _names(m['profiles']),
       suggestions: _bootstrapSuggestions(m['suggestions']),
       shoppingPresence: _mapList(

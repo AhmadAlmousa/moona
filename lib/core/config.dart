@@ -81,6 +81,17 @@ class MoonaFunctions {
   static const String finalizeScratch = 'finalizeScratch';
   static const String setShoppingPresence = 'setShoppingPresence';
 
+  // Named lists.
+  static const String getLists = 'getLists';
+  static const String createList = 'createList';
+  static const String updateList = 'updateList';
+  static const String deleteList = 'deleteList';
+
+  // Barcode.
+  static const String lookupBarcode = 'lookupBarcode';
+  static const String adminGetBarcodeQueue = 'adminGetBarcodeQueue';
+  static const String adminResolveBarcode = 'adminResolveBarcode';
+
   // Admin — gated server-side by isAdmin/MOONA_ADMIN_USER_IDS.
   static const String adminList = 'adminList';
   static const String adminCreate = 'adminCreate';
@@ -106,6 +117,8 @@ class MoonaCollections {
   static const String brands = 'brands';
   static const String stores = 'stores';
 
+  static const String userLists = 'user_lists';
+
   static const List<String> all = [
     profiles,
     categories,
@@ -117,5 +130,6 @@ class MoonaCollections {
     shoppingPresence,
     brands,
     stores,
+    userLists,
   ];
 }

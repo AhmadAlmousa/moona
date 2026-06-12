@@ -252,20 +252,26 @@ class AppwriteRepository {
         Query.equal('status', 'accepted'),
       ]);
 
-  Future<List<JsonMap>> listActiveItems(Object? ownerId) =>
-      listAllDocuments(adminDatabases, CollectionIds.listItems, [
-        Query.equal('ownerId', ownerId),
-        Query.equal('status', 'active'),
-        Query.orderDesc('important'),
-        Query.orderDesc('updatedAt'),
-      ]);
+  Future<List<JsonMap>> listActiveItems(Object? ownerId, {String? listId}) {
+    final queries = [
+      Query.equal('ownerId', ownerId),
+      Query.equal('status', 'active'),
+      if ((listId ?? '').isNotEmpty) Query.equal('listId', listId),
+      Query.orderDesc('important'),
+      Query.orderDesc('updatedAt'),
+    ];
+    return listAllDocuments(adminDatabases, CollectionIds.listItems, queries);
+  }
 
-  Future<List<JsonMap>> listTrashItems(Object? ownerId) =>
-      listAllDocuments(adminDatabases, CollectionIds.listItems, [
-        Query.equal('ownerId', ownerId),
-        Query.equal('status', 'trash'),
-        Query.orderDesc('trashedAt'),
-      ]);
+  Future<List<JsonMap>> listTrashItems(Object? ownerId, {String? listId}) {
+    final queries = [
+      Query.equal('ownerId', ownerId),
+      Query.equal('status', 'trash'),
+      if ((listId ?? '').isNotEmpty) Query.equal('listId', listId),
+      Query.orderDesc('trashedAt'),
+    ];
+    return listAllDocuments(adminDatabases, CollectionIds.listItems, queries);
+  }
 
   Future<List<JsonMap>> listEvents(
     Object? ownerId, {
@@ -386,13 +392,151 @@ class AppwriteRepository {
     return result.documents.firstOrNull;
   }
 
-  Future<JsonMap> setActiveReceivedOwner(Object? viewerId, Object? ownerId) =>
+  Future<JsonMap> setActiveReceivedOwner(
+    Object? viewerId,
+    Object? ownerId, {
+    String? listId,
+  }) =>
       adminDatabases.updateDocument(
         databaseId: databaseId,
         collectionId: CollectionIds.profiles,
         documentId: viewerId.toString(),
         data: {
           'activeReceivedOwnerId': ownerId?.toString() ?? '',
+          'activeReceivedListId': listId ?? '',
+          'updatedAt': nowIso(),
+        },
+      );
+
+  // ── User Lists ─────────────────────────────────────────────────────────────
+
+  Future<List<JsonMap>> listUserLists(Object? ownerId) =>
+      listAllDocuments(adminDatabases, CollectionIds.userLists, [
+        Query.equal('ownerId', ownerId),
+        Query.orderAsc('sortOrder'),
+      ]);
+
+  Future<JsonMap?> findDefaultUserList(Object? ownerId) async {
+    final result = await adminDatabases.listDocuments(
+      databaseId: databaseId,
+      collectionId: CollectionIds.userLists,
+      queries: [
+        Query.equal('ownerId', ownerId),
+        Query.equal('isDefault', true),
+        Query.limit(1),
+      ],
+    );
+    return result.documents.firstOrNull;
+  }
+
+  Future<JsonMap> getUserList(Object? listId) => adminDatabases.getDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.userLists,
+        documentId: listId.toString(),
+      );
+
+  Future<JsonMap> createUserList(JsonMap data, String ownerId) =>
+      adminDatabases.createDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.userLists,
+        documentId: ID.unique(),
+        data: withoutId(data),
+        permissions: userDocumentPermissions(ownerId),
+      );
+
+  Future<JsonMap> updateUserList(Object? listId, JsonMap data) =>
+      adminDatabases.updateDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.userLists,
+        documentId: listId.toString(),
+        data: data,
+      );
+
+  Future<void> deleteUserList(Object? listId) => adminDatabases.deleteDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.userLists,
+        documentId: listId.toString(),
+      );
+
+  // ── Barcode Submissions ────────────────────────────────────────────────────
+
+  Future<JsonMap?> findBarcodeSubmission(Object? barcode) async {
+    final result = await adminDatabases.listDocuments(
+      databaseId: databaseId,
+      collectionId: CollectionIds.barcodeSubmissions,
+      queries: [
+        Query.equal('barcode', normalizeBarcode(barcode)),
+        Query.limit(1),
+      ],
+    );
+    return result.documents.firstOrNull;
+  }
+
+  Future<JsonMap?> findProductByBarcode(Object? barcode) async {
+    final normalized = normalizeBarcode(barcode);
+    if (normalized.isEmpty) return null;
+    final result = await adminDatabases.listDocuments(
+      databaseId: databaseId,
+      collectionId: CollectionIds.products,
+      queries: [
+        Query.equal('barcode', normalized),
+        Query.equal('active', true),
+        Query.limit(1),
+      ],
+    );
+    return result.documents.firstOrNull;
+  }
+
+  Future<JsonMap> upsertBarcodeSubmission(
+    String barcode,
+    String userId,
+  ) async {
+    final existing = await findBarcodeSubmission(barcode);
+    final normalized = normalizeBarcode(barcode);
+    if (existing != null) {
+      final newCount = ((existing['count'] ?? 1) as num).toInt() + 1;
+      return adminDatabases.updateDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.barcodeSubmissions,
+        documentId: documentId(existing),
+        data: {'count': newCount, 'updatedAt': nowIso()},
+      );
+    }
+    return adminDatabases.createDocument(
+      databaseId: databaseId,
+      collectionId: CollectionIds.barcodeSubmissions,
+      documentId: ID.unique(),
+      data: buildBarcodeSubmissionDocument(
+        barcode: normalized,
+        submittedByUserId: userId,
+      ),
+      permissions: [],
+    );
+  }
+
+  Future<List<JsonMap>> listUnresolvedBarcodeSubmissions() =>
+      listAllDocuments(adminDatabases, CollectionIds.barcodeSubmissions, [
+        Query.equal('resolvedProductId', ''),
+        Query.orderDesc('count'),
+      ]);
+
+  Future<JsonMap> getBarcodeSubmission(Object? submissionId) =>
+      adminDatabases.getDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.barcodeSubmissions,
+        documentId: submissionId.toString(),
+      );
+
+  Future<JsonMap> resolveBarcodeSubmission(
+    Object? submissionId,
+    Object? productId,
+  ) =>
+      adminDatabases.updateDocument(
+        databaseId: databaseId,
+        collectionId: CollectionIds.barcodeSubmissions,
+        documentId: submissionId.toString(),
+        data: {
+          'resolvedProductId': productId.toString(),
           'updatedAt': nowIso(),
         },
       );
@@ -763,6 +907,11 @@ class AppwriteRepository {
 
     await deleteShoppingPresence(id);
 
+    final userListDocs = await listUserLists(id);
+    for (final list in userListDocs) {
+      await deleteUserList(documentId(list));
+    }
+
     // Drop any dangling "currently viewing" link on the profile (skipped if the
     // profile is already gone, e.g. during a full user-delete cascade).
     try {
@@ -776,6 +925,7 @@ class AppwriteRepository {
       'events': events.length,
       'shares': shares.length,
       'files': deletedFiles,
+      'lists': userListDocs.length,
     };
   }
 
@@ -929,6 +1079,7 @@ String adminKindToCollection(Object? kind) {
   if (kind == 'users') return CollectionIds.profiles;
   if (kind == 'brands') return CollectionIds.brands;
   if (kind == 'stores') return CollectionIds.stores;
+  if (kind == 'barcode_submissions') return CollectionIds.barcodeSubmissions;
   throw MoonaError(ErrorCodes.invalidInput, 'Unsupported admin kind.');
 }
 

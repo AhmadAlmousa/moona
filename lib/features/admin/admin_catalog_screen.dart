@@ -35,6 +35,8 @@ List<_FieldSpec> _fieldsFor(AdminCatalogKind kind, AppStrings t) =>
         (key: 'displayName', label: t.adminProductName, emoji: false),
         (key: 'nameEn', label: t.adminNameEn, emoji: false),
         (key: 'nameAr', label: t.adminNameAr, emoji: false),
+        (key: 'barcode', label: t.adminBarcode, emoji: false),
+        (key: 'defaultBrand', label: t.adminDefaultBrand, emoji: false),
       ],
       AdminCatalogKind.brands || AdminCatalogKind.stores => [
         (key: 'name', label: t.adminTermName, emoji: false),

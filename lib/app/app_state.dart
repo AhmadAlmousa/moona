@@ -29,6 +29,8 @@ class AppState {
     this.profile,
     this.ownerId = '',
     this.isShared = false,
+    this.lists = const [],
+    this.activeListId,
     this.items = const [],
     this.trash = const [],
     this.categories = const [],
@@ -55,6 +57,14 @@ class AppState {
   final Profile? profile;
   final String ownerId;
   final bool isShared;
+
+  /// All named lists for the current user (own lists only; empty when viewing a
+  /// shared list).
+  final List<UserList> lists;
+
+  /// The currently displayed list id. Null when no lists exist yet (pre-deploy
+  /// or first boot before default list is auto-created).
+  final String? activeListId;
   final List<ListItem> items;
   final List<ListItem> trash;
   final List<ShopCategory> categories;
@@ -86,6 +96,20 @@ class AppState {
   /// Monotonic counter bumped on every `list_events` realtime change so an open
   /// activity feed can refetch without holding its own subscription.
   final int activityRevision;
+
+  /// The currently active list object, or null when lists aren't loaded yet.
+  UserList? get activeList {
+    if (lists.isEmpty) return null;
+    if (activeListId != null) {
+      for (final l in lists) {
+        if (l.id == activeListId) return l;
+      }
+    }
+    for (final l in lists) {
+      if (l.isDefault) return l;
+    }
+    return lists.first;
+  }
 
   AppStrings get t => AppStrings.of(lang);
 
@@ -366,6 +390,8 @@ class AppState {
     Object? profile = _sentinel,
     String? ownerId,
     bool? isShared,
+    List<UserList>? lists,
+    Object? activeListId = _sentinel,
     List<ListItem>? items,
     List<ListItem>? trash,
     List<ShopCategory>? categories,
@@ -394,6 +420,10 @@ class AppState {
       profile: profile == _sentinel ? this.profile : profile as Profile?,
       ownerId: ownerId ?? this.ownerId,
       isShared: isShared ?? this.isShared,
+      lists: lists ?? this.lists,
+      activeListId: activeListId == _sentinel
+          ? this.activeListId
+          : activeListId as String?,
       items: items ?? this.items,
       trash: trash ?? this.trash,
       categories: categories ?? this.categories,
